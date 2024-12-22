@@ -8,6 +8,8 @@ from core.move import Move
 from core.game_rule import GameRule
 from chessBot import ChessAI, Difficulty
 
+
+
 class GameState(Enum):
     MENU = "menu"
     PLAYING = "playing"

@@ -1,6 +1,6 @@
 # game_rule.py
 
-from typing import List, Optional, Dict, Tuple
+from typing import List, Optional
 from enum import Enum
 from core.pieces.piece import Piece, PieceColor, PieceType
 from .board import Board
@@ -12,218 +12,185 @@ from .pieces.bishop import Bishop
 from .pieces.knight import Knight
 from .pieces.rook import Rook
 
-class GameState(Enum):
-    """Trạng thái của ván cờ"""
-    ACTIVE = "active"         # Đang chơi
-    CHECK = "check"          # Chiếu
-    CHECKMATE = "checkmate"  # Chiếu hết
-    STALEMATE = "stalemate"  # Hòa do hết nước đi
-    DRAW = "draw"            # Hòa do các lý do khác
+class GameState:
+    """Quản lý trạng thái game cờ"""
+    
+    class Status(Enum):
+        """Trạng thái của ván cờ"""
+        ACTIVE = "active"         # Đang chơi
+        CHECK = "check"          # Chiếu
+        CHECKMATE = "checkmate"  # Chiếu hết
+        STALEMATE = "stalemate"  # Hòa do hết nước đi
+        DRAW = "draw"            # Hòa do các lý do khác
 
-class GameRule:
     def __init__(self, board: Board):
-        # Khởi tạo các thuộc tính cơ bản
+        # Khởi tạo trạng thái game
         self._board = board
         self._current_player = PieceColor.WHITE
-        self._state = GameState.ACTIVE
-        self._last_move: Optional[Move] = None
+        self._status = self.Status.ACTIVE
+        self._last_move = None
         
-        # Quản lý nước đi
-        self._fifty_move_counter = 0
+        # Quản lý lịch sử
         self._move_count = 0
-        self._move_history: List[Move] = []
-        self._position_history: List[str] = []
-        
-        # Quản lý en passant
-        self._en_passant_target: Optional[Square] = None
-        self._en_passant_pawn: Optional[Piece] = None
-        
-        # Điểm cơ bản của quân cờ
-        self._piece_values = {
-            PieceType.PAWN: 1,
-            PieceType.KNIGHT: 3,
-            PieceType.BISHOP: 3,
-            PieceType.ROOK: 5,
-            PieceType.QUEEN: 9,
-            PieceType.KING: 0
-        }
+        self._fifty_move_counter = 0
+        self._move_history = []
+        self._position_history = []
 
-    # === PHẦN 1: QUẢN LÝ TRẠNG THÁI ===
-    @property 
+    @property
+    def board(self) -> Board:
+        return self._board
+
+    @property
     def current_player(self) -> PieceColor:
         return self._current_player
 
     @property
-    def state(self) -> GameState:
-        return self._state
+    def status(self) -> Status:
+        return self._status
+
+    @property
+    def last_move(self) -> Optional[Move]:
+        return self._last_move
 
     @property
     def is_game_over(self) -> bool:
-        return self._state in (GameState.CHECKMATE, GameState.STALEMATE, GameState.DRAW)
+        """Kiểm tra game kết thúc"""
+        return self._status in (
+            self.Status.CHECKMATE,
+            self.Status.STALEMATE,
+            self.Status.DRAW
+        )
 
-    def _update_game_state(self) -> None:
-        """Cập nhật trạng thái game sau mỗi nước đi"""
-        if self._is_checkmate():
-            self._state = GameState.CHECKMATE
-        elif self._is_stalemate():
-            self._state = GameState.STALEMATE
-        elif self._is_draw():
-            self._state = GameState.DRAW
-        elif self._is_check():
-            self._state = GameState.CHECK
-        else:
-            self._state = GameState.ACTIVE
-
-    # === PHẦN 2: XỬ LÝ NƯỚC ĐI ===
-    def make_move(self, move: Move) -> bool:
-        """Thực hiện nước đi"""
-        if not self.is_valid_move(move):
-            return False
-
-        # Cập nhật bộ đếm
+    def update_after_move(self, move: Move) -> None:
+        """Cập nhật trạng thái sau nước đi"""
+        # Cập nhật lịch sử
         self._move_count += 1
+        self._move_history.append(move)
+        self._last_move = move
+        self._position_history.append(str(self._board))
+        
+        # Cập nhật fifty-move rule
         if isinstance(move.moving_piece, Pawn) or move.is_capture:
             self._fifty_move_counter = 0
         else:
             self._fifty_move_counter += 1
 
-        # Lưu trạng thái trước khi di chuyển
-        self._position_history.append(self._get_board_state())
+        # Chuyển lượt chơi
+        self._current_player = self._current_player.opposite
         
-        # Cập nhật en passant
-        self.update_en_passant(move)
+        # Cập nhật trạng thái game
+        self._update_status()
 
-        # Thực hiện nước đi
-        if self._board.make_move(move):
-            self._last_move = move
-            self._move_history.append(move)
-            self._current_player = self._current_player.opposite
-            self._update_game_state()
-            return True
-
-        return False
-
-    def undo_move(self) -> Optional[Move]:
-        """Hoàn tác nước đi cuối cùng"""
+    def undo_last_move(self) -> Optional[Move]:
+        """Hoàn tác nước đi cuối"""
         if not self._move_history:
             return None
 
+        # Lấy và xóa nước đi cuối
         last_move = self._move_history.pop()
         self._position_history.pop()
         
-        if self._board.undo_move():
-            self._current_player = self._current_player.opposite
-            self._move_count -= 1
-            self._last_move = self._move_history[-1] if self._move_history else None
-            self._update_game_state()
-            return last_move
+        # Cập nhật trạng thái
+        self._move_count -= 1
+        self._last_move = self._move_history[-1] if self._move_history else None
+        self._current_player = self._current_player.opposite
+        self._update_status()
+        
+        return last_move
 
-        return None
+    def _update_status(self) -> None:
+        """Cập nhật trạng thái game"""
+        if GameRule.is_checkmate(self._board, self._current_player):
+            self._status = self.Status.CHECKMATE
+        elif GameRule.is_stalemate(self._board, self._current_player):
+            self._status = self.Status.STALEMATE
+        elif self._is_draw():
+            self._status = self.Status.DRAW
+        elif GameRule.is_check(self._board, self._current_player):
+            self._status = self.Status.CHECK
+        else:
+            self._status = self.Status.ACTIVE
 
-    # === PHẦN 3: KIỂM TRA LUẬT ===
-    def is_valid_move(self, move: Move) -> bool:
-        """Kiểm tra nước đi có hợp lệ"""
-        if not move.moving_piece or move.moving_piece.color != self._current_player:
-            return False
+    def _is_draw(self) -> bool:
+        """Kiểm tra điều kiện hòa"""
+        return (
+            self._fifty_move_counter >= 50 or
+            GameRule.is_insufficient_material(self._board) or
+            self._is_threefold_repetition()
+        )
 
-        # Kiểm tra en passant
-        if move.is_en_passant and not self.can_en_passant(
-            move.moving_piece, 
-            move.end_square
-        ):
-            return False
+    def _is_threefold_repetition(self) -> bool:
+        """Kiểm tra lặp vị trí 3 lần"""
+        for position in self._position_history:
+            if self._position_history.count(position) >= 3:
+                return True
+        return False
 
-        # Kiểm tra nhập thành
-        if move.is_castle and not self._is_castle_legal(move):
+    def __str__(self) -> str:
+        return (
+            f"Game Status: {self._status.value}\n"
+            f"Current Player: {self._current_player.value}\n"
+            f"Move Count: {self._move_count}"
+        )
+
+class GameRule:
+    """Quản lý luật chơi"""
+    @staticmethod
+    def is_valid_move(board: Board, move: Move, current_player: PieceColor) -> bool:
+        """Kiểm tra nước đi hợp lệ"""
+        if not move.moving_piece or move.moving_piece.color != current_player:
             return False
 
         # Kiểm tra nước đi cơ bản
-        if not move.moving_piece.can_move_to(move.end_square, self._board):
+        if not move.moving_piece.can_move_to(move.end_square, board):
+            return False
+
+        # Kiểm tra các nước đặc biệt
+        if move.is_en_passant and not GameRule._is_valid_en_passant(move, board):
+            return False
+
+        if move.is_castle and not GameRule._is_valid_castle(move, board):
             return False
 
         # Kiểm tra chiếu
-        if self._causes_self_check(move):
+        if GameRule._causes_self_check(board, move):
             return False
 
         return True
 
-    def get_legal_moves(self, piece: Piece) -> List[Move]:
-        """Lấy tất cả nước đi hợp lệ của một quân"""
+    @staticmethod
+    def get_legal_moves(board: Board, piece: Piece) -> List[Move]:
+        """Lấy danh sách nước đi hợp lệ"""
         legal_moves = []
-        possible_moves = piece.get_possible_moves(self._board)
-
-        for move in possible_moves:
-            if self.is_valid_move(move):
+        for move in piece.get_possible_moves(board):
+            if GameRule.is_valid_move(board, move, piece.color):
                 legal_moves.append(move)
-
         return legal_moves
 
-    # === PHẦN 4: XỬ LÝ EN PASSANT ===
-    def update_en_passant(self, move: Move) -> None:
-        """Cập nhật trạng thái en passant"""
-        self._en_passant_target = None
-        self._en_passant_pawn = None
-
-        if isinstance(move.moving_piece, Pawn):
-            if abs(move.end_square.row - move.start_square.row) == 2:
-                self._en_passant_pawn = move.moving_piece
-                mid_row = (move.start_square.row + move.end_square.row) // 2
-                self._en_passant_target = self._board.get_square(
-                    mid_row,
-                    move.end_square.col
-                )
-
-    def can_en_passant(self, pawn: Piece, target: Square) -> bool:
-        """Kiểm tra khả năng bắt tốt qua đường"""
-        return (self._en_passant_target == target and
-                self._en_passant_pawn is not None and
-                self._en_passant_pawn.color != pawn.color)
-
-    # === PHẦN 5: TÍNH ĐIỂM VỊ TRÍ ===
-    def get_position_value(self, piece: Piece) -> float:
-        """Tính điểm vị trí của quân cờ"""
-        base_value = self._piece_values[piece.piece_type]
-        position_bonus = self._calculate_position_bonus(piece)
-        mobility_bonus = self._calculate_mobility_bonus(piece)
-        return base_value + position_bonus + mobility_bonus
-
-    def _calculate_position_bonus(self, piece: Piece) -> float:
-        """Tính điểm thưởng vị trí"""
-        methods = {
-            PieceType.PAWN: self._get_pawn_bonus,
-            PieceType.KNIGHT: self._get_knight_bonus,
-            PieceType.BISHOP: self._get_bishop_bonus,
-            PieceType.ROOK: self._get_rook_bonus,
-            PieceType.KING: self._get_king_bonus
-        }
-        return methods.get(piece.piece_type, lambda x: 0.0)(piece)
-
-    # === PHẦN 6: KIỂM TRA TRẠNG THÁI ===
-    def _is_check(self) -> bool:
+    @staticmethod
+    def is_check(board: Board, player: PieceColor) -> bool:
         """Kiểm tra vua có đang bị chiếu"""
-        king = self._board.get_king(self._current_player)
-        return king and self._is_square_attacked(king.position, self._current_player.opposite)
+        king = board.get_king(player)
+        return king and GameRule._is_square_attacked(board, king.position, player.opposite)
 
-    def _is_checkmate(self) -> bool:
+    @staticmethod
+    def is_checkmate(board: Board, player: PieceColor) -> bool:
         """Kiểm tra chiếu hết"""
-        return self._is_check() and self._has_no_legal_moves()
+        return (GameRule.is_check(board, player) and 
+                GameRule._has_no_legal_moves(board, player))
 
-    def _is_stalemate(self) -> bool:
+    @staticmethod
+    def is_stalemate(board: Board, player: PieceColor) -> bool:
         """Kiểm tra hết nước đi"""
-        return not self._is_check() and self._has_no_legal_moves()
+        return (not GameRule.is_check(board, player) and 
+                GameRule._has_no_legal_moves(board, player))
 
-    def _is_draw(self) -> bool:
-        """Kiểm tra điều kiện hòa"""
-        return (self._fifty_move_counter >= 50 or
-                self._is_insufficient_material() or
-                self._is_threefold_repetition())
-
-    def _is_insufficient_material(self) -> bool:
+    @staticmethod
+    def is_insufficient_material(board: Board) -> bool:
         """Kiểm tra không đủ quân chiếu hết"""
-        white_pieces = self._board.get_pieces(PieceColor.WHITE)
-        black_pieces = self._board.get_pieces(PieceColor.BLACK)
+        white_pieces = board.get_pieces(PieceColor.WHITE)
+        black_pieces = board.get_pieces(PieceColor.BLACK)
 
-        # Kiểm tra các trường hợp hòa cơ bản
         if len(white_pieces) == 1 and len(black_pieces) == 1:
             return True  # Vua đối vua
 
@@ -236,7 +203,49 @@ class GameRule:
 
         return False
 
-    def __str__(self) -> str:
-        return (f"Game State: {self._state.value}\n"
-                f"Current Player: {self._current_player.value}\n"
-                f"Move Count: {self._move_count}")
+    @staticmethod
+    def _is_valid_en_passant(move: Move, board: Board) -> bool:
+        """Kiểm tra nước bắt tốt qua đường"""
+        if not isinstance(move.moving_piece, Pawn):
+            return False
+        # Thêm logic kiểm tra en passant
+        return True
+
+    @staticmethod
+    def _is_valid_castle(move: Move, board: Board) -> bool:
+        """Kiểm tra nước nhập thành"""
+        if not isinstance(move.moving_piece, King):
+            return False
+        # Thêm logic kiểm tra castle
+        return True
+
+    @staticmethod
+    def _is_square_attacked(board: Board, square: Square, attacker_color: PieceColor) -> bool:
+        """Kiểm tra ô có bị tấn công"""
+        for piece in board.get_pieces(attacker_color):
+            if piece.can_attack_square(square, board):
+                return True
+        return False
+
+    @staticmethod
+    def _has_no_legal_moves(board: Board, player: PieceColor) -> bool:
+        """Kiểm tra không còn nước đi hợp lệ"""
+        for piece in board.get_pieces(player):
+            if GameRule.get_legal_moves(board, piece):
+                return False
+        return True
+
+    @staticmethod
+    def _causes_self_check(board: Board, move: Move) -> bool:
+        """Kiểm tra nước đi có để vua bị chiếu"""
+        # Tạo bàn cờ tạm để thử nước đi
+        temp_board = board.clone()
+        temp_board.make_move(move)
+        
+        # Kiểm tra vua có bị chiếu
+        king = temp_board.get_king(move.moving_piece.color)
+        return king and GameRule._is_square_attacked(
+            temp_board,
+            king.position,
+            move.moving_piece.color.opposite
+        )
