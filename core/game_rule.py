@@ -4,6 +4,7 @@ from .move import Move
 from core.pieces.pawn import Pawn
 from core.pieces.king import King
 from core.pieces.rook import Rook
+from core.pieces.piece import Piece
 import copy
 
 class GameRule:
@@ -165,3 +166,20 @@ class GameRule:
             new_rook_square = self.board.get_square(move.start_square.row, rook_end_col)
             new_rook_square.place_piece(rook_piece)
             rook_piece.has_moved = True  # Đánh dấu rằng xe đã di chuyển
+    def filter_moves(self, piece: 'Piece', moves: list[tuple[int, int]]) -> list[tuple[int, int]]:
+        """
+        Lọc các nước đi không làm vua bị chiếu.
+        """
+        valid_moves = []
+        for move in moves:
+            start_square = self.get_square(piece.position.row, piece.position.col)
+            end_square = self.get_square(move[0], move[1])
+        
+            # Tạo đối tượng Move
+            move_object = Move(start_square, end_square, piece)
+        
+            # Kiểm tra xem nước đi có khiến vua bị chiếu không
+            game_rule = GameRule(self)
+            if not game_rule.will_king_be_in_check(move_object):
+                valid_moves.append(move)
+        return valid_moves

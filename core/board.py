@@ -1,194 +1,293 @@
-from core.square import Square
-from core.pieces.pawn import Pawn
-from core.pieces.rook import Rook
-from core.pieces.knight import Knight
-from core.pieces.bishop import Bishop
-from core.pieces.queen import Queen
-from core.pieces.king import King
-from core.pieces.piece import Piece
-from core.game_rule import GameRule
+from typing import List, Optional, Dict, Tuple, Set, TYPE_CHECKING
+from collections import defaultdict
+from .square import Square
+from core.pieces.piece import Piece, PieceColor, PieceType
+from .move import Move, MoveType
+
+if TYPE_CHECKING:
+    from core.game_rule import GameRule
+    from .pieces.king import King
+    from .pieces.pawn import Pawn
 
 class Board:
     """
-    Lớp đại diện cho bàn cờ cờ vua.
+    Class đại diện cho bàn cờ vua.
+    Quản lý trạng thái bàn cờ, quân cờ và tương tác với luật chơi.
     """
+    DEFAULT_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+
     def __init__(self):
-        """
-        Khởi tạo bàn cờ 8x8 với các ô (Square) và sắp xếp các quân cờ vào vị trí ban đầu.
-        """
-        self.grid = [[Square(row, col, 'black' if (row + col) % 2 else 'white') for col in range(8)] for row in range(8)]
-        self.setup_pieces()
-
-    def setup_pieces(self):
-        """
-        Sắp xếp các quân cờ vào vị trí ban đầu.
-        """
-        # Sắp xếp quân tốt (Pawn)
-        for col in range(8):
-            self.grid[1][col].place_piece(Pawn('black', self.grid[1][col], 'path/to/black_pawn.png'))
-            self.grid[6][col].place_piece(Pawn('white', self.grid[6][col], 'path/to/white_pawn.png'))
-
-        # Sắp xếp quân xe (Rook)
-        self.grid[0][0].place_piece(Rook('black', self.grid[0][0], 'path/to/black_rook.png'))
-        self.grid[0][7].place_piece(Rook('black', self.grid[0][7], 'path/to/black_rook.png'))
-        self.grid[7][0].place_piece(Rook('white', self.grid[7][0], 'path/to/white_rook.png'))
-        self.grid[7][7].place_piece(Rook('white', self.grid[7][7], 'path/to/white_rook.png'))
-
-        # Sắp xếp quân mã (Knight)
-        self.grid[0][1].place_piece(Knight('black', self.grid[0][1], 'path/to/black_knight.png'))
-        self.grid[0][6].place_piece(Knight('black', self.grid[0][6], 'path/to/black_knight.png'))
-        self.grid[7][1].place_piece(Knight('white', self.grid[7][1], 'path/to/white_knight.png'))
-        self.grid[7][6].place_piece(Knight('white', self.grid[7][6], 'path/to/white_knight.png'))
-
-        # Sắp xếp quân tượng (Bishop)
-        self.grid[0][2].place_piece(Bishop('black', self.grid[0][2], 'path/to/black_bishop.png'))
-        self.grid[0][5].place_piece(Bishop('black', self.grid[0][5], 'path/to/black_bishop.png'))
-        self.grid[7][2].place_piece(Bishop('white', self.grid[7][2], 'path/to/white_bishop.png'))
-        self.grid[7][5].place_piece(Bishop('white', self.grid[7][5], 'path/to/white_bishop.png'))
-
-        # Sắp xếp quân hậu (Queen)
-        self.grid[0][3].place_piece(Queen('black', self.grid[0][3], 'path/to/black_queen.png'))
-        self.grid[7][3].place_piece(Queen('white', self.grid[7][3], 'path/to/white_queen.png'))
-
-        # Sắp xếp quân vua (King)
-        self.grid[0][4].place_piece(King('black', self.grid[0][4], 'path/to/black_king.png'))
-        self.grid[7][4].place_piece(King('white', self.grid[7][4], 'path/to/white_king.png'))
-
-    def draw(self) -> list[list[dict]]:
-        """
-        Trả về dữ liệu đại diện cho bàn cờ.
+        """Khởi tạo bàn cờ với trạng thái ban đầu"""
+        # Cấu trúc dữ liệu cơ bản
+        self._squares: List[List[Square]] = []
+        self._pieces: Dict[PieceColor, List[Piece]] = {
+            PieceColor.WHITE: [],
+            PieceColor.BLACK: []
+        }
+        self._kings: Dict[PieceColor, 'King'] = {}
         
-        Returns:
-            list[list[dict]]: Bàn cờ 8x8 với thông tin về ô và quân cờ.
-        """
-        board_representation = []
-        for row in range(8):
-            row_representation = []
-            for col in range(8):
-                square = self.grid[row][col]
-                square_info = {
-                    'row': row,
-                    'col': col,
-                    'color': square.color,
-                    'piece': str(square.piece) if square.is_occupied() else None
-                }
-                row_representation.append(square_info)
-            board_representation.append(row_representation)
-        return board_representation
+        # Lịch sử và theo dõi trạng thái
+        self._move_history: List[Move] = []
+        self._captured_pieces: List[Piece] = []
+        self._position_history: Set[str] = set()
+        
+        # Trạng thái đặc biệt
+        self._en_passant_square: Optional[Square] = None
+        self._halfmove_clock: int = 0
+        self._fullmove_number: int = 1
+        
+        # Luật chơi và validation
+        self._game_rules: Optional['GameRule'] = None
+        
+        self._initialize_board()
 
+    def _initialize_board(self) -> None:
+        """Khởi tạo ma trận các ô trên bàn cờ"""
+        self._squares = [[Square(row, col) for col in range(8)] 
+                        for row in range(8)]
+
+    # Properties và Getters
+    @property
+    def squares(self) -> List[List[Square]]:
+        """Ma trận các ô trên bàn cờ"""
+        return self._squares
+
+    @property
+    def move_history(self) -> List[Move]:
+        """Lịch sử các nước đi"""
+        return self._move_history.copy()
+
+    @property
+    def captured_pieces(self) -> List[Piece]:
+        """Danh sách quân bị bắt"""
+        return self._captured_pieces.copy()
+
+    @property
+    def en_passant_square(self) -> Optional[Square]:
+        """Ô có thể bắt tốt qua đường"""
+        return self._en_passant_square
+
+    @property
+    def halfmove_clock(self) -> int:
+        """Số nước đi từ lần cuối bắt quân hoặc di chuyển tốt"""
+        return self._halfmove_clock
+
+    @property
+    def fullmove_number(self) -> int:
+        """Số lượt đi đầy đủ"""
+        return self._fullmove_number
+
+    # Phương thức truy cập và quản lý bàn cờ
     def get_square(self, row: int, col: int) -> Square:
         """
-        Lấy đối tượng ô vuông tại vị trí cụ thể.
-        
-        """
-        if 0 <= row < 8 and 0 <= col < 8:
-            return self.grid[row][col]
-        return None
-
-    def move_piece(self, start_square: Square, end_square: Square):
-        """
-        Thực hiện di chuyển quân cờ từ ô bắt đầu đến ô kết thúc.
+        Lấy ô tại vị trí chỉ định.
         
         Args:
-            start_square (Square): Ô xuất phát.
-            end_square (Square): Ô đích.
-        """
-        piece = start_square.remove_piece()
-        end_square.place_piece(piece)
-        piece.move(end_square)
-
-    def get_all_pieces(self) -> list:
-        """
-        Lấy danh sách tất cả các quân cờ hiện tại trên bàn cờ.
-        
+            row: Số hàng (0-7)
+            col: Số cột (0-7)
+            
         Returns:
-            list: Danh sách các quân cờ.
+            Square: Ô tại vị trí chỉ định
+            
+        Raises:
+            ValueError: Nếu vị trí không hợp lệ
         """
-        pieces = []
-        for row in self.grid:
-            for square in row:
-                if square.is_occupied():
-                    pieces.append(square.piece)
-        return pieces
+        if not (0 <= row < 8 and 0 <= col < 8):
+            raise ValueError(f"Invalid position: ({row}, {col})")
+        return self._squares[row][col]
 
-    def reset_board(self):
+    def get_square_from_algebraic(self, notation: str) -> Square:
         """
-        Đặt lại bàn cờ về trạng thái ban đầu.
-        """
-        self.grid = [[Square(row, col, 'black' if (row + col) % 2 else 'white') for col in range(8)] for row in range(8)]
-        self.setup_pieces()
-
-    def print_board(self):
-        """
-        In bàn cờ dưới dạng bảng.
-        """
-        for row in self.grid:
-            print([str(square.piece) if square.is_occupied() else 'Empty' for square in row])
-
-    def is_promotion(self, piece, end_square) -> bool:
-        """
-        Kiểm tra xem quân tốt có đạt đến hàng phong cấp không.
+        Lấy ô từ ký hiệu đại số (ví dụ: 'e4').
         
         Args:
-            piece (Piece): Quân cờ hiện tại.
-            end_square (Square): Ô đích nơi quân cờ sẽ di chuyển tới.
+            notation: Ký hiệu đại số của ô
+            
+        Returns:
+            Square: Ô tương ứng
+        """
+        if len(notation) != 2:
+            raise ValueError(f"Invalid algebraic notation: {notation}")
+        
+        col = ord(notation[0].lower()) - ord('a')
+        row = 8 - int(notation[1])
+        
+        return self.get_square(row, col)
+
+    # Quản lý quân cờ
+    def place_piece(self, piece: Piece, square: Square) -> None:
+        """
+        Đặt quân cờ lên ô chỉ định.
+        
+        Args:
+            piece: Quân cờ cần đặt
+            square: Ô đích
+        """
+        if square.is_occupied():
+            raise ValueError(f"Square {square} is already occupied")
+        
+        square.place_piece(piece)
+        self._pieces[piece.color].append(piece)
+        
+        if piece.piece_type == PieceType.KING:
+            self._kings[piece.color] = piece
+
+    def remove_piece(self, square: Square) -> Optional[Piece]:
+        """
+        Lấy quân cờ ra khỏi ô.
+        
+        Args:
+            square: Ô cần lấy quân
+            
+        Returns:
+            Optional[Piece]: Quân cờ đã lấy ra
+        """
+        piece = square.remove_piece()
+        if piece:
+            self._pieces[piece.color].remove(piece)
+            if piece.piece_type == PieceType.KING:
+                del self._kings[piece.color]
+        return piece
+
+    # Xử lý nước đi
+    def make_move(self, move: Move) -> None:
+        """
+        Thực hiện nước đi trên bàn cờ.
+        
+        Args:
+            move: Nước đi cần thực hiện
+        """
+        # Cập nhật trạng thái
+        self._update_game_state(move)
+        
+        # Xử lý các loại nước đi đặc biệt
+        if move.move_type == MoveType.CASTLE:
+            self._handle_castling(move)
+        elif move.move_type == MoveType.EN_PASSANT:
+            self._handle_en_passant(move)
+        elif move.move_type == MoveType.PROMOTION:
+            self._handle_promotion(move)
+        else:
+            self._handle_normal_move(move)
+        
+        # Lưu lịch sử
+        self._move_history.append(move)
+        self._position_history.add(self._get_position_key())
+
+    def undo_move(self) -> Optional[Move]:
+        """
+        Hoàn tác nước đi cuối cùng.
         
         Returns:
-            bool: True nếu quân tốt có thể phong cấp, ngược lại False.
+            Optional[Move]: Nước đi đã hoàn tác
         """
-        if isinstance(piece, Pawn):
-            if (piece.color == 'white' and end_square.row == 0) or (piece.color == 'black' and end_square.row == 7):
+        if not self._move_history:
+            return None
+            
+        move = self._move_history.pop()
+        self._restore_position(move)
+        return move
+
+    # Kiểm tra trạng thái
+    def is_check(self, color: PieceColor) -> bool:
+        """
+        Kiểm tra vua có đang bị chiếu không.
+        
+        Args:
+            color: Màu cần kiểm tra
+            
+        Returns:
+            bool: True nếu vua đang bị chiếu
+        """
+        king = self._kings.get(color)
+        if not king:
+            return False
+            
+        opponent_color = (PieceColor.BLACK 
+                         if color == PieceColor.WHITE 
+                         else PieceColor.WHITE)
+        
+        for piece in self._pieces[opponent_color]:
+            if king.position in piece.get_attack_squares(self):
                 return True
         return False
-    
-    def promote_pawn(self, pawn, position: 'Square', promotion_choice: str = 'queen') -> 'Piece':
+
+    def is_checkmate(self, color: PieceColor) -> bool:
         """
-        Phong cấp quân tốt thành quân Hậu, Xe, Tượng hoặc Mã.
+        Kiểm tra có phải chiếu hết không.
         
         Args:
-            pawn (Pawn): Quân tốt cần được phong cấp.
-            position (Square): Ô nơi quân tốt đã đạt đến hàng phong cấp.
-            promotion_choice (str): Lựa chọn quân cờ (queen, rook, bishop, knight). Mặc định là "queen".
+            color: Màu cần kiểm tra
+            
+        Returns:
+            bool: True nếu là chiếu hết
+        """
+        if not self.is_check(color):
+            return False
+            
+        return not self._has_legal_moves(color)
+
+    def is_stalemate(self, color: PieceColor) -> bool:
+        """
+        Kiểm tra có phải hết cờ không.
+        
+        Args:
+            color: Màu cần kiểm tra
+            
+        Returns:
+            bool: True nếu là hết cờ
+        """
+        if self.is_check(color):
+            return False
+            
+        return not self._has_legal_moves(color)
+
+    # Tiện ích
+    def get_fen(self) -> str:
+        """
+        Tạo chuỗi FEN từ trạng thái bàn cờ hiện tại.
         
         Returns:
-            Piece: Quân cờ mới (Queen, Rook, Knight, Bishop).
+            str: Chuỗi FEN
         """
-        from core.pieces.queen import Queen
-        from core.pieces.rook import Rook
-        from core.pieces.knight import Knight
-        from core.pieces.bishop import Bishop
-        
-        promotion_choice = promotion_choice.lower()
-        
-        if promotion_choice == 'queen':
-            return Queen(pawn.color, position, f'path/to/{pawn.color}_queen.png')
-        elif promotion_choice == 'rook':
-            return Rook(pawn.color, position, f'path/to/{pawn.color}_rook.png')
-        elif promotion_choice == 'knight':
-            return Knight(pawn.color, position, f'path/to/{pawn.color}_knight.png')
-        elif promotion_choice == 'bishop':
-            return Bishop(pawn.color, position, f'path/to/{pawn.color}_bishop.png')
-        else:
-            # Mặc định là Hậu nếu lựa chọn không hợp lệ
-            return Queen(pawn.color, position, f'path/to/{pawn.color}_queen.png')
+        # Implementation
+        pass
 
-    def filter_moves(self, piece: 'Piece', moves: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    def clone(self) -> 'Board':
         """
-        Lọc các nước đi không làm vua bị chiếu.
+        Tạo bản sao của bàn cờ.
+        
+        Returns:
+            Board: Bản sao của bàn cờ
         """
-        valid_moves = []
-        for move in moves:
-            start_square = self.get_square(piece.position.row, piece.position.col)
-            end_square = self.get_square(move[0], move[1])
-        
-            # Tạo đối tượng Move
-            move_object = Move(start_square, end_square, piece)
-        
-            # Kiểm tra xem nước đi có khiến vua bị chiếu không
-            game_rule = GameRule(self)
-            if not game_rule.will_king_be_in_check(move_object):
-                valid_moves.append(move)
-        return valid_moves
+        # Implementation
+        pass
 
+    # Private helper methods
+    def _update_game_state(self, move: Move) -> None:
+        """Cập nhật trạng thái game sau mỗi nước đi"""
+        pass
 
+    def _handle_castling(self, move: Move) -> None:
+        """Xử lý nước nhập thành"""
+        pass
 
+    def _handle_en_passant(self, move: Move) -> None:
+        """Xử lý nước bắt tốt qua đường"""
+        pass
+
+    def _handle_promotion(self, move: Move) -> None:
+        """Xử lý nước phong cấp"""
+        pass
+
+    def _handle_normal_move(self, move: Move) -> None:
+        """Xử lý nước đi thông thường"""
+        pass
+
+    def _get_position_key(self) -> str:
+        """Tạo khóa duy nhất cho trạng thái bàn cờ"""
+        pass
+
+    def _has_legal_moves(self, color: PieceColor) -> bool:
+        """Kiểm tra còn nước đi hợp lệ không"""
+        pass
