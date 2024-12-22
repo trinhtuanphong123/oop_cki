@@ -1,140 +1,127 @@
-from __future__ import annotations
-from core.pieces.piece import Piece
-from typing import Any, List, Tuple
-from ..square import Square
+from typing import List
+from piece import Piece
+from move import Move
+from board import Board
+from core.pieces.piece import PieceType, PieceColor
+from square import Square
+
 class Bishop(Piece):
     """
-    Lớp đại diện cho quân tượng trong cờ vua.
-    Quân tượng di chuyển theo đường chéo.
+    Class Bishop kế thừa từ Piece, đại diện cho quân tượng trong cờ vua
+    Quân tượng di chuyển theo đường chéo, không giới hạn số ô
     """
-    def __init__(self, color: str, position: 'Square'):
+    def __init__(self, color: PieceColor, square: Square):
         """
-        Khởi tạo quân tượng.
-        
+        Khởi tạo quân tượng
         Args:
-            color: Màu của quân tượng ('white' hoặc 'black')
-            position: Vị trí ban đầu
+            color: Màu của quân cờ (WHITE/BLACK)
+            square: Ô cờ mà quân tượng đang đứng
         """
-        super().__init__(color, position, 'bishop')
+        super().__init__(color, square)
+        self._piece_type = PieceType.BISHOP
+        # Các hướng di chuyển chéo
+        self._directions = [
+            (-1, -1),  # Chéo trên trái
+            (-1, 1),   # Chéo trên phải
+            (1, -1),   # Chéo dưới trái
+            (1, 1)     # Chéo dưới phải
+        ]
 
-    def get_legal_moves(self, board: Any) -> List[Tuple[int, int]]:
-        """
-        Trả về danh sách các nước đi hợp lệ của quân tượng.
-        
-        Args:
-            board: Bàn cờ hiện tại
-            
-        Returns:
-            List[Tuple[int, int]]: Danh sách các vị trí (row, col) hợp lệ
-        """
-        return self._get_diagonal_moves(board)
+    @property
+    def piece_type(self) -> PieceType:
+        """Lấy loại quân cờ"""
+        return self._piece_type
 
-    def _get_diagonal_moves(self, board: Any) -> List[Tuple[int, int]]:
+    def get_legal_moves(self, board: Board) -> List[Move]:
         """
-        Lấy tất cả các nước đi chéo hợp lệ.
-        
-        Args:
-            board: Bàn cờ hiện tại
-            
-        Returns:
-            List[Tuple[int, int]]: Danh sách các nước đi chéo hợp lệ
-        """
-        moves = []
-        row, col = self.position.row, self.position.col
-        
-        # Các hướng di chuyển chéo: phải-xuống, phải-lên, trái-xuống, trái-lên
-        directions = [(1, 1), (1, -1), (-1, 1), (-1, -1)]
-
-        for dr, dc in directions:
-            moves.extend(self._get_moves_in_direction(board, row, col, dr, dc))
-
-        return moves
-
-    def _get_moves_in_direction(
-        self, 
-        board: Any, 
-        row: int, 
-        col: int, 
-        dr: int, 
-        dc: int
-    ) -> List[Tuple[int, int]]:
-        """
-        Lấy các nước đi hợp lệ theo một hướng chéo.
-        
+        Lấy tất cả các nước đi hợp lệ của quân tượng
         Args:
             board: Bàn cờ hiện tại
-            row: Hàng hiện tại
-            col: Cột hiện tại
-            dr: Hướng di chuyển theo hàng
-            dc: Hướng di chuyển theo cột
-            
         Returns:
-            List[Tuple[int, int]]: Các nước đi hợp lệ theo hướng
+            Danh sách các nước đi hợp lệ
         """
-        moves = []
-        
-        for distance in range(1, 8):  # Quân tượng đi tối đa 7 ô
-            new_row = row + dr * distance
-            new_col = col + dc * distance
+        legal_moves = []
+        current_square = self.square
+        row, col = current_square.row, current_square.col
 
-            if not self._is_within_board(new_row, new_col):
-                break
-
-            target_square = board.get_square(new_row, new_col)
+        # Kiểm tra từng hướng đi chéo
+        for dir_row, dir_col in self._directions:
+            next_row, next_col = row + dir_row, col + dir_col
             
-            if target_square.is_occupied():
-                if target_square.has_enemy_piece(self.color):
-                    moves.append((new_row, new_col))  # Có thể bắt quân địch
-                break  # Dừng khi gặp bất kỳ quân cờ nào
-            else:
-                moves.append((new_row, new_col))  # Thêm nước đi vào ô trống
+            # Tiếp tục di chuyển theo hướng cho đến khi gặp chướng ngại
+            while board.is_valid_position(next_row, next_col):
+                target_square = board.get_square(next_row, next_col)
+                target_piece = target_square.piece
 
-        return moves
+                # Nếu ô trống
+                if target_piece is None:
+                    legal_moves.append(Move(current_square, target_square))
+                
+                # Nếu gặp quân địch
+                elif target_piece.color != self.color:
+                    legal_moves.append(Move(current_square, target_square, target_piece))
+                    break
+                
+                # Nếu gặp quân cùng màu
+                else:
+                    break
 
-    def _is_within_board(self, row: int, col: int) -> bool:
+                next_row += dir_row
+                next_col += dir_col
+
+        return legal_moves
+
+    def is_diagonal_move(self, move: Move) -> bool:
         """
-        Kiểm tra tọa độ có nằm trong bàn cờ không.
-        
+        Kiểm tra xem một nước đi có phải là nước đi chéo hợp lệ không
         Args:
-            row: Số hàng (0-7)
-            col: Số cột (0-7)
-            
+            move: Nước đi cần kiểm tra
         Returns:
-            bool: True nếu tọa độ hợp lệ
+            True nếu là nước đi chéo hợp lệ, False nếu không
         """
-        return 0 <= row < 8 and 0 <= col < 8
+        start_row, start_col = move.start_square.row, move.start_square.col
+        end_row, end_col = move.end_square.row, move.end_square.col
+        
+        # Di chuyển chéo khi độ chênh lệch hàng và cột bằng nhau
+        return abs(end_row - start_row) == abs(end_col - start_col)
 
-    def get_value(self) -> float:
+    def clone(self) -> 'Bishop':
         """
-        Tính giá trị của quân tượng dựa trên vị trí.
-        
+        Tạo bản sao của quân tượng
         Returns:
-            float: Giá trị của quân tượng
+            Bản sao của quân tượng hiện tại
         """
-        base_value = 3.0  # Giá trị cơ bản của quân tượng
-        
-        # Cộng thêm điểm cho vị trí tốt
-        position_bonus = self._calculate_position_bonus()
-        
-        return base_value + position_bonus
+        return Bishop(self.color, self.square)
 
-    def _calculate_position_bonus(self) -> float:
+    def get_piece_value(self) -> int:
         """
-        Tính điểm cộng thêm dựa trên vị trí của tượng.
-        
+        Lấy giá trị của quân tượng cho việc tính điểm
         Returns:
-            float: Điểm cộng thêm cho vị trí
+            Giá trị quân tượng
         """
-        bonus = 0.0
-        
-        # Tượng ở trung tâm mạnh hơn
-        center_distance = abs(3.5 - self.position.col) + abs(3.5 - self.position.row)
-        bonus -= center_distance * 0.05  # Càng xa trung tâm càng yếu
-        
-        # Tượng cặp mạnh hơn tượng đơn (được xử lý ở Board)
-        
-        return bonus
+        return 3
 
     def __str__(self) -> str:
-        """Chuỗi đại diện của quân tượng"""
-        return f"{self.color} Bishop at {self.position}"
+        """String representation của quân tượng"""
+        color_name = "White" if self.color == PieceColor.WHITE else "Black"
+        return f"{color_name} Bishop at {self.square}"
+
+    def get_symbol(self) -> str:
+        """
+        Lấy ký hiệu của quân tượng để hiển thị
+        Returns:
+            'B' cho tượng trắng, 'b' cho tượng đen
+        """
+        return 'B' if self.color == PieceColor.WHITE else 'b'
+
+    def can_reach_square(self, target_square: Square, board: Board) -> bool:
+        """
+        Kiểm tra xem quân tượng có thể đi đến ô đích không (không tính các quân chặn)
+        Args:
+            target_square: Ô đích cần kiểm tra
+            board: Bàn cờ hiện tại
+        Returns:
+            True nếu có thể đi đến, False nếu không
+        """
+        move = Move(self.square, target_square)
+        return self.is_diagonal_move(move)

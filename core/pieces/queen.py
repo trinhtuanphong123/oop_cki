@@ -1,41 +1,107 @@
-from __future__ import annotations
-from core.pieces.piece import Piece
-from typing import Any
+from typing import List
+from piece import Piece
+from move import Move
+from board import Board
+from core.pieces.piece import PieceType, PieceColor
+from square import Square
 
 class Queen(Piece):
-    def get_legal_moves(self, board: Any) -> list[tuple[int, int]]:
+    """
+    Class Queen kế thừa từ Piece, đại diện cho quân hậu trong cờ vua
+    Quân hậu di chuyển theo cả đường thẳng và đường chéo, không giới hạn số ô
+    """
+    def __init__(self, color: PieceColor, square: Square):
         """
-        Trả về danh sách các nước đi hợp lệ của quân hậu.
-        
+        Khởi tạo quân hậu
+        Args:
+            color: Màu của quân cờ (WHITE/BLACK)
+            square: Ô cờ mà quân hậu đang đứng
         """
-        moves = []
-        directions = [
-            (1, 0), (-1, 0), (0, 1), (0, -1),  # Ngang và dọc
-            (1, 1), (1, -1), (-1, 1), (-1, -1) # Chéo
+        super().__init__(color, square)
+        self._piece_type = PieceType.QUEEN
+        # Kết hợp các hướng đi của xe và tượng
+        self._directions = [
+            # Các hướng thẳng (như xe)
+            (-1, 0),  # Lên
+            (1, 0),   # Xuống
+            (0, -1),  # Trái
+            (0, 1),   # Phải
+            # Các hướng chéo (như tượng)
+            (-1, -1), # Chéo trên trái
+            (-1, 1),  # Chéo trên phải
+            (1, -1),  # Chéo dưới trái
+            (1, 1)    # Chéo dưới phải
         ]
-        row, col = self.position.row, self.position.col
 
-        for dr, dc in directions:  # Lặp qua tất cả 8 hướng di chuyển
-            for i in range(1, 8):  # Quân hậu có thể đi tối đa 7 ô trong một hướng
-                new_row, new_col = row + dr * i, col + dc * i
+    @property
+    def piece_type(self) -> PieceType:
+        """Lấy loại quân cờ"""
+        return self._piece_type
 
-                if not self._is_within_board(new_row, new_col):
-                    break  # Vượt quá giới hạn bàn cờ, dừng lại
+    def get_legal_moves(self, board: Board) -> List[Move]:
+        """
+        Lấy tất cả các nước đi hợp lệ của quân hậu
+        Args:
+            board: Bàn cờ hiện tại
+        Returns:
+            Danh sách các nước đi hợp lệ
+        """
+        legal_moves = []
+        current_square = self.square
+        row, col = current_square.row, current_square.col
 
-                target_square = board.get_square(new_row, new_col)
-                if target_square.is_occupied():
-                    if target_square.has_enemy_piece(self.color):
-                        moves.append((new_row, new_col))  # Có thể bắt quân đối phương
-                    break  # Dừng lại khi gặp vật cản
+        # Kiểm tra tất cả các hướng (thẳng và chéo)
+        for dir_row, dir_col in self._directions:
+            next_row, next_col = row + dir_row, col + dir_col
+            
+            # Tiếp tục di chuyển theo hướng cho đến khi gặp chướng ngại
+            while board.is_valid_position(next_row, next_col):
+                target_square = board.get_square(next_row, next_col)
+                target_piece = target_square.piece
+
+                # Nếu ô trống
+                if target_piece is None:
+                    legal_moves.append(Move(current_square, target_square))
+                
+                # Nếu gặp quân địch
+                elif target_piece.color != self.color:
+                    legal_moves.append(Move(current_square, target_square, target_piece))
+                    break
+                
+                # Nếu gặp quân cùng màu
                 else:
-                    moves.append((new_row, new_col))  # Thêm nước đi hợp lệ
+                    break
 
-        return moves
+                next_row += dir_row
+                next_col += dir_col
 
-    def _is_within_board(self, row: int, col: int) -> bool:
+        return legal_moves
+
+    def clone(self) -> 'Queen':
         """
-        Kiểm tra xem tọa độ có nằm trong giới hạn bàn cờ không.
-        
-        
+        Tạo bản sao của quân hậu
+        Returns:
+            Bản sao của quân hậu hiện tại
         """
-        return 0 <= row < 8 and 0 <= col < 8
+        return Queen(self.color, self.square)
+
+    def get_piece_value(self) -> int:
+        """
+        Lấy giá trị của quân hậu cho việc tính điểm
+        Returns:
+            Giá trị quân hậu
+        """
+        return 9
+
+    def __str__(self) -> str:
+        """String representation của quân hậu"""
+        color_name = "White" if self.color == PieceColor.WHITE else "Black"
+        return f"{color_name} Queen at {self.square}"
+
+    def get_symbol(self) -> str:
+        """
+        Lấy ký hiệu của quân hậu để hiển thị
+        Returns:
+            'Q' cho hậu trắng, 'q' cho hậu đen
+        """
+        return 'Q' if self.color == PieceColor.WHITE else 'q'

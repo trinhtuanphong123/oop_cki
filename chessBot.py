@@ -1,146 +1,181 @@
-from .player import Player
+import random
+from typing import List, Tuple, Optional
+from enum import Enum
+from copy import deepcopy
+import math
 from core.board import Board
 from core.move import Move
-import random
+from core.pieces.piece import Piece, PieceColor
 
-class AIStrategy:
-    """
-    Lớp trừu tượng đại diện cho chiến lược AI.
-    """
-    def calculate_move(self, board: 'Board', color: str) -> 'Move':
-        raise NotImplementedError("Phương thức này phải được triển khai trong các lớp con.")
+class Difficulty(Enum):
+    EASY = 1    # Random
+    MEDIUM = 2  # Negamax
+    HARD = 3    # MCTS
 
-class RandomStrategy(AIStrategy):
+class ChessAI:
     """
-    Chiến lược ngẫu nhiên (dành cho AI dễ).
+    Class đại diện cho AI trong game cờ vua
+    Attributes:
+        _color: Màu quân của AI
+        _difficulty: Độ khó của AI
+        _piece_values: Giá trị của từng loại quân
     """
-    def calculate_move(self, board: 'Board', color: str) -> 'Move':
-        possible_moves = []
-        for piece in board.get_all_pieces():
-            if piece.color == color:
-                for move in piece.get_legal_moves(board):
-                    start_square = piece.position
-                    end_square = board.get_square(*move)
-                    possible_moves.append(Move(start_square, end_square, piece))
-        
-        if possible_moves:
-            return random.choice(possible_moves)
+    def __init__(self, color: PieceColor, difficulty: Difficulty = Difficulty.MEDIUM):
+        self._color = color
+        self._difficulty = difficulty
+        self._piece_values = {
+            'PAWN': 100,
+            'KNIGHT': 320,
+            'BISHOP': 330,
+            'ROOK': 500,
+            'QUEEN': 900,
+            'KING': 20000
+        }
+
+    # Mức độ 1: Random Move
+    def _get_random_move(self, board: Board, valid_moves: List[Move]) -> Optional[Move]:
+        """
+        Chọn ngẫu nhiên một nước đi từ danh sách nước đi hợp lệ
+        """
+        if valid_moves:
+            return random.choice(valid_moves)
         return None
 
-class NegamaxStrategy(AIStrategy):
-    """
-    Chiến lược sử dụng thuật toán Negamax Alpha-Beta.
-    """
-    def __init__(self, depth: int):
-        self.depth = depth
+    # Mức độ 2: Negamax Algorithm
+    def _negamax(self, board: Board, depth: int, alpha: float, beta: float, color: int) -> Tuple[float, Optional[Move]]:
+        """
+        Thuật toán Negamax với alpha-beta pruning
+        Args:
+            board: Trạng thái bàn cờ
+            depth: Độ sâu tìm kiếm
+            alpha: Alpha value cho pruning
+            beta: Beta value cho pruning
+            color: 1 cho AI, -1 cho đối thủ
+        Returns:
+            Tuple(giá trị đánh giá, nước đi tốt nhất)
+        """
+        if depth == 0:
+            return self._evaluate_position(board) * color, None
 
-    def calculate_move(self, board: 'Board', color: str) -> 'Move':
-        _, best_move = self.negamax_alphabeta(board, self.depth, -float('inf'), float('inf'), True, color)
-        return best_move
-
-    def negamax_alphabeta(self, board: 'Board', depth: int, alpha: float, beta: float, is_max_player: bool, color: str) -> tuple:
-        if depth == 0 or board.is_game_over():
-            return self.evaluate_board(board, color), None
-        
-        max_eval = -float('inf')
+        best_value = float('-inf')
         best_move = None
-        
-        possible_moves = []
-        for piece in board.get_all_pieces():
-            if piece.color == color:
-                for move in piece.get_legal_moves(board):
-                    start_square = piece.position
-                    end_square = board.get_square(*move)
-                    possible_moves.append(Move(start_square, end_square, piece))
-        
-        for move in possible_moves:
-            board.move_piece(move.start_square, move.end_square)
-            eval, _ = self.negamax_alphabeta(board, depth - 1, -beta, -alpha, not is_max_player, color)
-            eval = -eval
-            board.undo_move()
+        valid_moves = self._get_valid_moves(board)
+
+        for move in valid_moves:
+            new_board = deepcopy(board)
+            new_board.make_move(move)
             
-            if eval > max_eval:
-                max_eval = eval
+            value, _ = self._negamax(new_board, depth - 1, -beta, -alpha, -color)
+            value = -value
+
+            if value > best_value:
+                best_value = value
                 best_move = move
-            
-            alpha = max(alpha, eval)
+
+            alpha = max(alpha, value)
             if alpha >= beta:
                 break
-        
-        return max_eval, best_move
 
-    def evaluate_board(self, board: 'Board', color: str) -> int:
+        return best_value, best_move
+
+    # Mức độ 3: Monte Carlo Tree Search
+    class MCTSNode:
+        """Node cho MCTS"""
+        def __init__(self, board: Board, move: Optional[Move] = None, parent=None):
+            self.board = board
+            self.move = move
+            self.parent = parent
+            self.children = []
+            self.wins = 0
+            self.visits = 0
+            self.untried_moves = self._get_valid_moves(board)
+
+        def uct_value(self, c_param=1.414):
+            if self.visits == 0:
+                return float('inf')
+            return (self.wins / self.visits) + c_param * math.sqrt(math.log(self.parent.visits) / self.visits)
+
+    def _mcts(self, board: Board, iterations: int = 1000) -> Move:
         """
-        Đánh giá bàn cờ dựa trên giá trị của các quân cờ.
+        Monte Carlo Tree Search algorithm
+        Args:
+            board: Trạng thái bàn cờ
+            iterations: Số lần lặp MCTS
+        Returns:
+            Nước đi tốt nhất
         """
-        value = 0
-        piece_values = {'Pawn': 1, 'Knight': 3, 'Bishop': 3, 'Rook': 5, 'Queen': 9, 'King': 1000}
-        
+        root = self.MCTSNode(board)
+
+        for _ in range(iterations):
+            node = root
+            temp_board = deepcopy(board)
+
+            # Selection
+            while node.untried_moves == [] and node.children != []:
+                node = self._select_uct(node)
+                temp_board.make_move(node.move)
+
+            # Expansion
+            if node.untried_moves != []:
+                move = random.choice(node.untried_moves)
+                temp_board.make_move(move)
+                node = self._add_child(node, move, temp_board)
+
+            # Simulation
+            result = self._simulate(temp_board)
+
+            # Backpropagation
+            while node is not None:
+                node.visits += 1
+                node.wins += result
+                node = node.parent
+
+        # Chọn nước đi tốt nhất
+        return max(root.children, key=lambda c: c.visits).move
+
+    def _evaluate_position(self, board: Board) -> float:
+        """
+        Đánh giá vị trí hiện tại của bàn cờ
+        Returns:
+            Giá trị đánh giá (càng cao càng tốt cho AI)
+        """
+        score = 0
         for piece in board.get_all_pieces():
-            if piece.color == color:
-                value += piece_values.get(piece.__class__.__name__, 0)
+            value = self._piece_values.get(piece.piece_type, 0)
+            if piece.color == self._color:
+                score += value
             else:
-                value -= piece_values.get(piece.__class__.__name__, 0)
-        
-        return value
+                score -= value
+        return score
 
-
-class AI(Player):
-    """
-    Lớp đại diện cho AI trong trò chơi cờ vua.
-    """
-    _instances = {}
-
-    def __new__(cls, color: str, difficulty: str):
-        if (color, difficulty) not in cls._instances:
-            cls._instances[(color, difficulty)] = super(AI, cls).__new__(cls)
-        return cls._instances[(color, difficulty)]
-
-    def __init__(self, color: str, difficulty: str):
+    def get_best_move(self, board: Board, valid_moves: List[Move]) -> Optional[Move]:
         """
-        Khởi tạo AI với màu của quân cờ và độ khó của AI.
-        
-        Args:
-            color (str): Màu của quân cờ mà AI điều khiển ('white' hoặc 'black').
-            difficulty (str): Độ khó của AI ('easy', 'medium', 'hard').
+        Lấy nước đi tốt nhất dựa trên độ khó
         """
-        super().__init__("AI", color)
-        self.difficulty = difficulty
-        self.strategy = self.set_strategy(difficulty)
+        if not valid_moves:
+            return None
 
-    def set_strategy(self, difficulty: str) -> AIStrategy:
-        """
-        Chọn chiến lược AI tùy thuộc vào độ khó.
+        if self._difficulty == Difficulty.EASY:
+            return self._get_random_move(board, valid_moves)
         
-        Args:
-            difficulty (str): Độ khó của AI.
+        elif self._difficulty == Difficulty.MEDIUM:
+            depth = 3  # Độ sâu tìm kiếm cho Negamax
+            _, best_move = self._negamax(board, depth, float('-inf'), float('inf'), 1)
+            return best_move
         
-        Returns:
-            AIStrategy: Chiến lược AI.
-        """
-        if difficulty == 'easy':
-            return RandomStrategy()
-        elif difficulty == 'medium':
-            return NegamaxStrategy(depth=3)
-        elif difficulty == 'hard':
-            return NegamaxStrategy(depth=5)
-        else:
-            raise ValueError("Độ khó không hợp lệ. Vui lòng chọn 'easy', 'medium' hoặc 'hard'.")
+        else:  # HARD
+            return self._mcts(board)
 
-    def calculate_best_move(self, board: 'Board') -> 'Move':
-        """
-        Tính toán nước đi tốt nhất dựa trên chiến lược AI.
-        
-        Args:
-            board (Board): Bàn cờ hiện tại.
-        
-        Returns:
-            Move: Nước đi tốt nhất mà AI có thể thực hiện.
-        """
-        return self.strategy.calculate_move(board)
+    def set_difficulty(self, difficulty: Difficulty) -> None:
+        """Thay đổi độ khó của AI"""
+        self._difficulty = difficulty
 
-    def __str__(self):
-        return f"AI({self.color}, {self.difficulty})"
+    @property
+    def color(self) -> PieceColor:
+        """Lấy màu quân của AI"""
+        return self._color
 
-    def __repr__(self):
-        return self.__str__()
+    @property
+    def difficulty(self) -> Difficulty:
+        """Lấy độ khó hiện tại của AI"""
+        return self._difficulty

@@ -1,140 +1,101 @@
-from __future__ import annotations
-from core.pieces.piece import Piece
-from typing import Any, List, Tuple
+from typing import List
+from piece import Piece
+from move import Move
+from board import Board
+from core.pieces.piece import PieceType, PieceColor
+from square import Square
 
-class Knight(Piece):
+class Bishop(Piece):
     """
-    Lớp đại diện cho quân mã trong cờ vua.
-    Quân mã di chuyển theo hình chữ L.
+    Class Bishop kế thừa từ Piece, đại diện cho quân tượng trong cờ vua
+    Quân tượng di chuyển theo đường chéo, không giới hạn số ô
     """
-    def __init__(self, color: str, position: 'Square'):
+    def __init__(self, color: PieceColor, square: Square):
         """
-        Khởi tạo quân mã.
-        
+        Khởi tạo quân tượng
         Args:
-            color: Màu của quân mã ('white' hoặc 'black')
-            position: Vị trí ban đầu
+            color: Màu của quân cờ (WHITE/BLACK)
+            square: Ô cờ mà quân tượng đang đứng
         """
-        super().__init__(color, position, 'knight')
-
-    def get_legal_moves(self, board: Any) -> List[Tuple[int, int]]:
-        """
-        Trả về danh sách các nước đi hợp lệ của quân mã.
-        
-        Args:
-            board: Bàn cờ hiện tại
-            
-        Returns:
-            List[Tuple[int, int]]: Danh sách các vị trí (row, col) hợp lệ
-        """
-        moves = []
-        current_pos = (self.position.row, self.position.col)
-        possible_moves = self._get_knight_moves(current_pos)
-
-        for new_pos in possible_moves:
-            if self._is_valid_move(board, new_pos):
-                moves.append(new_pos)
-
-        return moves
-
-    def _get_knight_moves(self, position: Tuple[int, int]) -> List[Tuple[int, int]]:
-        """
-        Tạo danh sách tất cả các nước đi có thể của quân mã từ vị trí hiện tại.
-        
-        Args:
-            position: Vị trí hiện tại (row, col)
-            
-        Returns:
-            List[Tuple[int, int]]: Danh sách các vị trí có thể đi
-        """
-        row, col = position
-        knight_moves = []
-        
-        # Các hướng di chuyển hình chữ L của quân mã
-        jumps = [
-            (-2, -1), (-2, 1),   # Lên 2 trái/phải 1
-            (-1, -2), (-1, 2),   # Lên 1 trái/phải 2
-            (1, -2), (1, 2),     # Xuống 1 trái/phải 2
-            (2, -1), (2, 1)      # Xuống 2 trái/phải 1
+        super().__init__(color, square)
+        self._piece_type = PieceType.BISHOP
+        # Các hướng di chuyển chéo
+        self._directions = [
+            (-1, -1),  # Chéo trên trái
+            (-1, 1),   # Chéo trên phải
+            (1, -1),   # Chéo dưới trái
+            (1, 1)     # Chéo dưới phải
         ]
 
-        for dr, dc in jumps:
-            new_row, new_col = row + dr, col + dc
-            if self._is_within_board(new_row, new_col):
-                knight_moves.append((new_row, new_col))
+    @property
+    def piece_type(self) -> PieceType:
+        """Lấy loại quân cờ"""
+        return self._piece_type
 
-        return knight_moves
-
-    def _is_valid_move(self, board: Any, position: Tuple[int, int]) -> bool:
+    def get_legal_moves(self, board: Board) -> List[Move]:
         """
-        Kiểm tra một nước đi có hợp lệ không.
-        
+        Lấy tất cả các nước đi hợp lệ của quân tượng
         Args:
             board: Bàn cờ hiện tại
-            position: Vị trí cần kiểm tra (row, col)
-            
         Returns:
-            bool: True nếu nước đi hợp lệ
+            Danh sách các nước đi hợp lệ
         """
-        row, col = position
-        target_square = board.get_square(row, col)
-        
-        if not target_square:
-            return False
+        legal_moves = []
+        current_square = self.square
+        row, col = current_square.row, current_square.col
 
-        # Hợp lệ nếu ô trống hoặc có quân địch
-        return (not target_square.is_occupied() or 
-                target_square.has_enemy_piece(self.color))
-
-    def _is_within_board(self, row: int, col: int) -> bool:
-        """
-        Kiểm tra tọa độ có nằm trong bàn cờ không.
-        
-        Args:
-            row: Số hàng (0-7)
-            col: Số cột (0-7)
+        # Kiểm tra từng hướng chéo
+        for dir_row, dir_col in self._directions:
+            next_row, next_col = row + dir_row, col + dir_col
             
-        Returns:
-            bool: True nếu tọa độ hợp lệ
-        """
-        return 0 <= row < 8 and 0 <= col < 8
+            # Tiếp tục di chuyển theo hướng cho đến khi gặp chướng ngại
+            while board.is_valid_position(next_row, next_col):
+                target_square = board.get_square(next_row, next_col)
+                target_piece = target_square.piece
 
-    def get_value(self) -> float:
-        """
-        Tính giá trị của quân mã dựa trên vị trí.
-        
-        Returns:
-            float: Giá trị của quân mã
-        """
-        base_value = 3.0  # Giá trị cơ bản của quân mã
-        position_bonus = self._calculate_position_bonus()
-        
-        return base_value + position_bonus
+                # Nếu ô trống
+                if target_piece is None:
+                    legal_moves.append(Move(current_square, target_square))
+                
+                # Nếu gặp quân địch
+                elif target_piece.color != self.color:
+                    legal_moves.append(Move(current_square, target_square, target_piece))
+                    break
+                
+                # Nếu gặp quân cùng màu
+                else:
+                    break
 
-    def _calculate_position_bonus(self) -> float:
+                next_row += dir_row
+                next_col += dir_col
+
+        return legal_moves
+
+    def clone(self) -> 'Bishop':
         """
-        Tính điểm cộng thêm dựa trên vị trí của mã.
-        
+        Tạo bản sao của quân tượng
         Returns:
-            float: Điểm cộng thêm cho vị trí
+            Bản sao của quân tượng hiện tại
         """
-        row, col = self.position.row, self.position.col
-        bonus = 0.0
-        
-        # Mã ở rìa bàn cờ yếu hơn
-        if row in (0, 7) or col in (0, 7):
-            bonus -= 0.2
-            
-        # Mã ở trung tâm mạnh hơn
-        if 2 <= row <= 5 and 2 <= col <= 5:
-            bonus += 0.3
-            
-        # Mã ở vị trí kiểm soát nhiều ô hơn
-        control_squares = len(self.get_legal_moves(None))  # None là temporary
-        bonus += control_squares * 0.05
-        
-        return bonus
+        return Bishop(self.color, self.square)
+
+    def get_piece_value(self) -> int:
+        """
+        Lấy giá trị của quân tượng cho việc tính điểm
+        Returns:
+            Giá trị quân tượng
+        """
+        return 3
 
     def __str__(self) -> str:
-        """Chuỗi đại diện của quân mã"""
-        return f"{self.color} Knight at ({self.position.row}, {self.position.col})"
+        """String representation của quân tượng"""
+        color_name = "White" if self.color == PieceColor.WHITE else "Black"
+        return f"{color_name} Bishop at {self.square}"
+
+    def get_symbol(self) -> str:
+        """
+        Lấy ký hiệu của quân tượng để hiển thị
+        Returns:
+            'B' cho tượng trắng, 'b' cho tượng đen
+        """
+        return 'B' if self.color == PieceColor.WHITE else 'b'

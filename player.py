@@ -1,125 +1,118 @@
-from core.board import Board
-from core.square import Square
+from enum import Enum
+from typing import List
 from core.pieces.piece import Piece
-from core.game_rule import GameRule
+from core.move import Move
+
+class PieceColor(Enum):
+    WHITE = "white"
+    BLACK = "black"
 
 class Player:
     """
-    Lớp đại diện cho người chơi trong trò chơi cờ vua.
+    Class đại diện cho người chơi cờ vua
+    Attributes:
+        _color: Màu quân của người chơi (trắng/đen)
+        _is_human: True nếu là người thật, False nếu là AI
+        _captured_pieces: Danh sách quân đã bắt được
+        _score: Điểm số của người chơi
+        _is_in_check: Trạng thái có đang bị chiếu không
     """
-    def __init__(self, username: str, color: str):
+    def __init__(self, color: PieceColor, is_human: bool = True):
+        # Thuộc tính private
+        self._color = color
+        self._is_human = is_human
+        self._captured_pieces = []
+        self._score = 0
+        self._is_in_check = False
+        # Giá trị điểm của từng loại quân
+        self._piece_values = {
+            'PAWN': 1,
+            'KNIGHT': 3,
+            'BISHOP': 3,
+            'ROOK': 5,
+            'QUEEN': 9,
+            'KING': 0
+        }
+
+    # Getters
+    @property
+    def color(self) -> PieceColor:
+        """Lấy màu quân của người chơi"""
+        return self._color
+
+    @property
+    def is_human(self) -> bool:
+        """Kiểm tra có phải người thật không"""
+        return self._is_human
+
+    @property
+    def score(self) -> int:
+        """Lấy điểm số hiện tại"""
+        return self._score
+
+    @property
+    def is_in_check(self) -> bool:
+        """Kiểm tra có đang bị chiếu không"""
+        return self._is_in_check
+
+    @property
+    def captured_pieces(self) -> List[Piece]:
+        """Lấy danh sách quân đã bắt được"""
+        return self._captured_pieces.copy()  # Trả về bản sao để bảo vệ dữ liệu
+
+    # Setters
+    def set_in_check(self, value: bool) -> None:
+        """Cập nhật trạng thái bị chiếu"""
+        self._is_in_check = value
+
+    # Methods
+    def add_captured_piece(self, piece: Piece) -> None:
         """
-        Khởi tạo một người chơi với tên và màu của quân cờ mà họ điều khiển.
-        
+        Thêm quân cờ bị bắt vào danh sách
         Args:
-            username (str): Tên của người chơi.
-            color (str): Màu của quân cờ ('white' hoặc 'black').
+            piece: Quân cờ bị bắt
         """
-        self.username = username  # Tên của người chơi
-        self.color = color  # Màu của quân cờ ('white' hoặc 'black')
-        self.captured_pieces = []  # Danh sách các quân cờ đã bị bắt bởi người chơi
+        if piece:
+            self._captured_pieces.append(piece)
+            self._update_score(piece)
 
-    def make_move(self, board: 'Board', start_square: 'Square', end_square: 'Square') -> bool:
+    def _update_score(self, captured_piece: Piece) -> None:
         """
-        Thực hiện một nước đi từ ô bắt đầu đến ô kết thúc.
-        
+        Cập nhật điểm dựa trên quân cờ bắt được
         Args:
-            board (Board): Bàn cờ hiện tại.
-            start_square (Square): Ô bắt đầu của nước đi.
-            end_square (Square): Ô kết thúc của nước đi.
-        
-        Returns:
-            bool: True nếu nước đi thành công, False nếu nước đi không hợp lệ.
+            captured_piece: Quân cờ bị bắt
         """
-        piece = start_square.piece
-        if piece and piece.color == self.color:
-            # Lấy danh sách các nước đi hợp lệ của quân cờ
-            legal_moves = board.filter_moves(piece)
-            
-            # Kiểm tra xem ô kết thúc có nằm trong danh sách nước đi hợp lệ hay không
-            if (end_square.row, end_square.col) in legal_moves:
-                captured_piece = board.move_piece(start_square, end_square)
-                if captured_piece:
-                    self.capture_piece(captured_piece)
-                return True
-        return False
+        piece_type = captured_piece.piece_type.upper()
+        self._score += self._piece_values.get(piece_type, 0)
 
-    def capture_piece(self, piece: 'Piece'):
+    def get_captured_pieces_count(self) -> dict:
         """
-        Lưu trữ quân cờ đã bị người chơi bắt.
-        
+        Đếm số lượng từng loại quân đã bắt
+        Returns:
+            Dict với key là loại quân và value là số lượng
+        """
+        counts = {}
+        for piece in self._captured_pieces:
+            piece_type = piece.piece_type
+            counts[piece_type] = counts.get(piece_type, 0) + 1
+        return counts
+
+    def handle_move_result(self, move: Move) -> None:
+        """
+        Xử lý kết quả sau một nước đi
         Args:
-            piece (Piece): Quân cờ bị bắt.
+            move: Nước đi vừa thực hiện
         """
-        self.captured_pieces.append(piece)
+        if move.is_capture:
+            self.add_captured_piece(move.captured_piece)
 
-    def get_captured_pieces(self) -> list:
-        """
-        Lấy danh sách các quân cờ mà người chơi đã bắt.
-        
-        Returns:
-            list: Danh sách các quân cờ bị bắt.
-        """
-        return self.captured_pieces
+    def reset_stats(self) -> None:
+        """Reset thống kê của người chơi khi bắt đầu ván mới"""
+        self._captured_pieces.clear()
+        self._score = 0
+        self._is_in_check = False
 
-    def has_legal_moves(self, board: 'Board') -> bool:
-        """
-        Kiểm tra xem người chơi có bất kỳ nước đi hợp lệ nào hay không.
-        
-        Args:
-            board (Board): Bàn cờ hiện tại.
-        
-        Returns:
-            bool: True nếu người chơi có ít nhất một nước đi hợp lệ, False nếu không.
-        """
-        for piece in board.get_all_pieces():
-            if piece.color == self.color:
-                legal_moves = board.filter_moves(piece)
-                if legal_moves:
-                    return True
-        return False
-
-    def is_king_in_check(self, board: 'Board') -> bool:
-        """
-        Kiểm tra xem vua của người chơi có đang bị chiếu hay không.
-        
-        """
-        game_rule = GameRule(board)
-        return game_rule.is_check(self.color)
-
-    def possible_moves(self, board: 'Board') -> dict:
-        """
-        Lấy danh sách tất cả các nước đi hợp lệ của tất cả các quân cờ của người chơi.
-        
-        Args:
-            board (Board): Bàn cờ hiện tại.
-        
-        Returns:
-            dict: Từ điển chứa tất cả các nước đi hợp lệ của các quân cờ của người chơi.
-                  Định dạng: {piece: [(row1, col1), (row2, col2), ...]}
-        """
-        moves = {}
-        for piece in board.get_all_pieces():
-            if piece.color == self.color:
-                legal_moves = board.filter_moves(piece)
-                if legal_moves:
-                    moves[piece] = legal_moves
-        return moves
-
-    def __str__(self):
-        """
-        Trả về chuỗi đại diện của người chơi.
-        
-        Returns:
-            str: Thông tin của người chơi (ví dụ: 'Player(JohnDoe, white)')
-        """
-        return f"Player({self.username}, {self.color})"
-
-    def __repr__(self):
-        """
-        Trả về chuỗi đại diện của người chơi.
-        
-        Returns:
-            str: Thông tin của người chơi (ví dụ: 'Player(JohnDoe, white)')
-        """
-        return self.__str__()
+    def __str__(self) -> str:
+        """Biểu diễn string của người chơi"""
+        player_type = "Human" if self._is_human else "AI"
+        return f"{player_type} Player ({self._color.value}), Score: {self._score}"
