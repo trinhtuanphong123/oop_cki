@@ -1,181 +1,144 @@
-import random
-from typing import List, Tuple, Optional
-from enum import Enum
-from copy import deepcopy
-import math
-from core.board import Board
-from core.move import Move
-from core.pieces.piece import Piece, PieceColor
+from typing import Optional
+from .player import Player, PieceColor
+from .core.move import Move
+from .core.game_rule import GameState
+from ..ai.strategies import AIStrategy
+from ..ai.strategies.random import RandomStrategy
 
-class Difficulty(Enum):
-    EASY = 1    # Random
-    MEDIUM = 2  # Negamax
-    HARD = 3    # MCTS
-
-class ChessAI:
+class AIPlayer(Player):
     """
-    Class đại diện cho AI trong game cờ vua
+    Class đại diện cho người chơi AI trong cờ vua
     Attributes:
-        _color: Màu quân của AI
-        _difficulty: Độ khó của AI
-        _piece_values: Giá trị của từng loại quân
+        _strategy: Chiến thuật AI được sử dụng
+        _thinking_time: Thời gian suy nghĩ cho mỗi nước đi (giây)
+        _depth: Độ sâu tìm kiếm cho các thuật toán như Minimax
     """
-    def __init__(self, color: PieceColor, difficulty: Difficulty = Difficulty.MEDIUM):
-        self._color = color
-        self._difficulty = difficulty
-        self._piece_values = {
-            'PAWN': 100,
-            'KNIGHT': 320,
-            'BISHOP': 330,
-            'ROOK': 500,
-            'QUEEN': 900,
-            'KING': 20000
+    def __init__(self, name: str, color: PieceColor, strategy: Optional[AIStrategy] = None):
+        """
+        Khởi tạo AI player
+        Args:
+            name: Tên của AI
+            color: Màu quân của AI (trắng/đen)
+            strategy: Chiến thuật AI sử dụng (mặc định là RandomStrategy)
+        """
+        super().__init__(name, color, is_human=False)
+        self._strategy = strategy or RandomStrategy()
+        self._thinking_time = 2.0  # Thời gian suy nghĩ mặc định (giây)
+        self._depth = 3  # Độ sâu tìm kiếm mặc định
+
+    # === PROPERTIES ===
+    @property
+    def strategy(self) -> AIStrategy:
+        """Lấy chiến thuật hiện tại của AI"""
+        return self._strategy
+
+    @property
+    def thinking_time(self) -> float:
+        """Lấy thời gian suy nghĩ cho mỗi nước đi"""
+        return self._thinking_time
+
+    @property
+    def depth(self) -> int:
+        """Lấy độ sâu tìm kiếm hiện tại"""
+        return self._depth
+
+    # === PUBLIC METHODS ===
+    def get_move(self, game_state: GameState) -> Optional[Move]:
+        """
+        Lấy nước đi từ AI sử dụng chiến thuật đã chọn
+        Args:
+            game_state: Trạng thái hiện tại của game
+        Returns:
+            Nước đi được chọn hoặc None nếu không có nước đi hợp lệ
+        """
+        # Sử dụng chiến thuật để tìm nước đi tốt nhất
+        move = self._strategy.find_best_move(
+            game_state,
+            self._thinking_time,
+            self._depth
+        )
+
+        if move:
+            self.add_move(move)
+        return move
+
+    def set_strategy(self, strategy: AIStrategy) -> None:
+        """
+        Thay đổi chiến thuật của AI
+        Args:
+            strategy: Chiến thuật mới
+        """
+        self._strategy = strategy
+
+    def set_difficulty(self, level: int) -> None:
+        """
+        Thiết lập độ khó cho AI
+        Args:
+            level: Độ khó (1-5)
+        """
+        # Map độ khó 1-5 thành các tham số phù hợp
+        difficulty_settings = {
+            1: {"depth": 1, "time": 1.0},
+            2: {"depth": 2, "time": 1.5},
+            3: {"depth": 3, "time": 2.0},
+            4: {"depth": 4, "time": 2.5},
+            5: {"depth": 5, "time": 3.0}
         }
 
-    # Mức độ 1: Random Move
-    def _get_random_move(self, board: Board, valid_moves: List[Move]) -> Optional[Move]:
-        """
-        Chọn ngẫu nhiên một nước đi từ danh sách nước đi hợp lệ
-        """
-        if valid_moves:
-            return random.choice(valid_moves)
-        return None
+        if level in difficulty_settings:
+            settings = difficulty_settings[level]
+            self._depth = settings["depth"]
+            self._thinking_time = settings["time"]
 
-    # Mức độ 2: Negamax Algorithm
-    def _negamax(self, board: Board, depth: int, alpha: float, beta: float, color: int) -> Tuple[float, Optional[Move]]:
+    def set_thinking_time(self, seconds: float) -> None:
         """
-        Thuật toán Negamax với alpha-beta pruning
+        Thiết lập thời gian suy nghĩ cho mỗi nước đi
         Args:
-            board: Trạng thái bàn cờ
-            depth: Độ sâu tìm kiếm
-            alpha: Alpha value cho pruning
-            beta: Beta value cho pruning
-            color: 1 cho AI, -1 cho đối thủ
-        Returns:
-            Tuple(giá trị đánh giá, nước đi tốt nhất)
+            seconds: Thời gian tính bằng giây
         """
-        if depth == 0:
-            return self._evaluate_position(board) * color, None
+        if seconds > 0:
+            self._thinking_time = seconds
 
-        best_value = float('-inf')
-        best_move = None
-        valid_moves = self._get_valid_moves(board)
-
-        for move in valid_moves:
-            new_board = deepcopy(board)
-            new_board.make_move(move)
-            
-            value, _ = self._negamax(new_board, depth - 1, -beta, -alpha, -color)
-            value = -value
-
-            if value > best_value:
-                best_value = value
-                best_move = move
-
-            alpha = max(alpha, value)
-            if alpha >= beta:
-                break
-
-        return best_value, best_move
-
-    # Mức độ 3: Monte Carlo Tree Search
-    class MCTSNode:
-        """Node cho MCTS"""
-        def __init__(self, board: Board, move: Optional[Move] = None, parent=None):
-            self.board = board
-            self.move = move
-            self.parent = parent
-            self.children = []
-            self.wins = 0
-            self.visits = 0
-            self.untried_moves = self._get_valid_moves(board)
-
-        def uct_value(self, c_param=1.414):
-            if self.visits == 0:
-                return float('inf')
-            return (self.wins / self.visits) + c_param * math.sqrt(math.log(self.parent.visits) / self.visits)
-
-    def _mcts(self, board: Board, iterations: int = 1000) -> Move:
+    def set_depth(self, depth: int) -> None:
         """
-        Monte Carlo Tree Search algorithm
+        Thiết lập độ sâu tìm kiếm
         Args:
-            board: Trạng thái bàn cờ
-            iterations: Số lần lặp MCTS
+            depth: Độ sâu tìm kiếm (>= 1)
+        """
+        if depth >= 1:
+            self._depth = depth
+
+    def analyze_position(self, game_state: GameState) -> dict:
+        """
+        Phân tích vị trí hiện tại
+        Args:
+            game_state: Trạng thái game hiện tại
         Returns:
-            Nước đi tốt nhất
+            Dict chứa thông tin phân tích (điểm đánh giá, nước đi tốt nhất, etc)
         """
-        root = self.MCTSNode(board)
-
-        for _ in range(iterations):
-            node = root
-            temp_board = deepcopy(board)
-
-            # Selection
-            while node.untried_moves == [] and node.children != []:
-                node = self._select_uct(node)
-                temp_board.make_move(node.move)
-
-            # Expansion
-            if node.untried_moves != []:
-                move = random.choice(node.untried_moves)
-                temp_board.make_move(move)
-                node = self._add_child(node, move, temp_board)
-
-            # Simulation
-            result = self._simulate(temp_board)
-
-            # Backpropagation
-            while node is not None:
-                node.visits += 1
-                node.wins += result
-                node = node.parent
-
-        # Chọn nước đi tốt nhất
-        return max(root.children, key=lambda c: c.visits).move
-
-    def _evaluate_position(self, board: Board) -> float:
-        """
-        Đánh giá vị trí hiện tại của bàn cờ
-        Returns:
-            Giá trị đánh giá (càng cao càng tốt cho AI)
-        """
-        score = 0
-        for piece in board.get_all_pieces():
-            value = self._piece_values.get(piece.piece_type, 0)
-            if piece.color == self._color:
-                score += value
-            else:
-                score -= value
-        return score
-
-    def get_best_move(self, board: Board, valid_moves: List[Move]) -> Optional[Move]:
-        """
-        Lấy nước đi tốt nhất dựa trên độ khó
-        """
-        if not valid_moves:
-            return None
-
-        if self._difficulty == Difficulty.EASY:
-            return self._get_random_move(board, valid_moves)
+        evaluation = self._strategy.evaluate_position(game_state)
+        best_move = self.get_move(game_state)
         
-        elif self._difficulty == Difficulty.MEDIUM:
-            depth = 3  # Độ sâu tìm kiếm cho Negamax
-            _, best_move = self._negamax(board, depth, float('-inf'), float('inf'), 1)
-            return best_move
-        
-        else:  # HARD
-            return self._mcts(board)
+        return {
+            "evaluation": evaluation,
+            "best_move": best_move,
+            "depth": self._depth,
+            "thinking_time": self._thinking_time
+        }
 
-    def set_difficulty(self, difficulty: Difficulty) -> None:
-        """Thay đổi độ khó của AI"""
-        self._difficulty = difficulty
+    def reset(self) -> None:
+        """Reset trạng thái AI player"""
+        super().reset()
+        # Reset các thông số AI về mặc định
+        self._depth = 3
+        self._thinking_time = 2.0
 
-    @property
-    def color(self) -> PieceColor:
-        """Lấy màu quân của AI"""
-        return self._color
+    # === STRING METHODS ===
+    def __str__(self) -> str:
+        return (f"AI {self._name} ({self._color.value}) - "
+                f"Strategy: {self._strategy.__class__.__name__}, "
+                f"Depth: {self._depth}")
 
-    @property
-    def difficulty(self) -> Difficulty:
-        """Lấy độ khó hiện tại của AI"""
-        return self._difficulty
+    def __repr__(self) -> str:
+        return (f"AIPlayer(name='{self._name}', color={self._color}, "
+                f"strategy={self._strategy.__class__.__name__})")
