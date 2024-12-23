@@ -5,13 +5,13 @@ from enum import Enum
 from .core.board import Board
 from .core.game_rule import GameState
 from .core.move import Move
-from .core.game_rule import GameRules
+from .core.game_rule import GameRule
 from .core.pieces.piece import Piece, PieceColor
-from ..players.player import Player
-from ..players.ai_player import AIPlayer
+from .player.player import Player
+from .player.ai_player import AIPlayer
 from .ai.chess_ai import ChessAI
-from .ai.strategies import AIStrategy
-from .ai.strategies.random import RandomStrategy
+from .ai.strategies.strategies import AIStrategy
+from .ai.strategies.radom import RandomStrategy
 from .ai.strategies.negamax import NegamaxStrategy
 from .ai.strategies.mcts import MCTSStrategy
 
@@ -52,7 +52,7 @@ class GameManager:
         self._current_player_index = 0
         self._selected_piece: Optional[Piece] = None
         self._highlighted_moves: List[Move] = []
-        self._game_rules = GameRules()
+        self._game_rules = GameRule()
         
         # AI settings
         self._ai_difficulty = GameDifficulty.MEDIUM

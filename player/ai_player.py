@@ -1,9 +1,9 @@
 from typing import Optional
 from .player import Player, PieceColor
-from .core.move import Move
-from .core.game_rule import GameState
-from ..ai.strategies import AIStrategy
-from ..ai.strategies.random import RandomStrategy
+from ..core.move import Move
+from ..core.game_rule import GameState
+from ..ai.strategies.strategies import AIStrategy
+from ..ai.strategies.radom import RandomStrategy
 
 class AIPlayer(Player):
     """
