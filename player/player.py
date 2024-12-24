@@ -1,11 +1,20 @@
 # player/player.py
-
+from enum import Enum
 from abc import ABC, abstractmethod
 from typing import Optional, List
 from core.pieces.piece import PieceColor
 from core.move import Move
 from core.game_state import GameState
 
+
+
+class PlayerStatus(Enum):
+    """Trạng thái của người chơi"""
+    ACTIVE = "active"         # Đang chơi
+    RESIGNED = "resigned"     # Đầu hàng
+    TIMEOUT = "timeout"       # Hết giờ
+    CHECKMATE = "checkmate"   # Bị chiếu hết
+    STALEMATE = "stalemate"  # Bế tắc
 class Player(ABC):
     """
     Class trừu tượng đại diện cho một người chơi trong ván cờ.

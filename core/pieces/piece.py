@@ -35,21 +35,24 @@ class Piece(ABC):
     Định nghĩa interface chung và triển khai các phương thức cơ bản.
     """
     # Đường dẫn tới thư mục chứa ảnh quân cờ
-    PIECES_DIR = os.path.join("assets", "pieces")
+    PIECES_DIR = os.path.join("assets", "images", "imgs-80")
 
-    def __init__(self, color: PieceColor, position: Square, piece_type: PieceType):
+    def __init__(self, color: PieceColor, position: Square):
         """
         Khởi tạo quân cờ
         Args:
             color: Màu quân cờ
             position: Vị trí ban đầu
-            piece_type: Loại quân cờ
         """
         self._color = color
         self._position = position
-        self._piece_type = piece_type
         self._has_moved = False
-        self._image_path = self._get_image_path()
+        
+        # Đặt piece_type trong class con
+        self._piece_type: PieceType = None
+        
+        if position:
+            position.place_piece(self)
 
     @property
     def color(self) -> PieceColor:
@@ -77,17 +80,18 @@ class Piece(ABC):
         return self._has_moved
 
     @property
-    def image_path(self) -> str:
-        """Đường dẫn đến file ảnh"""
-        return self._image_path
-
-    def _get_image_path(self) -> str:
-        """
-        Lấy đường dẫn đến file ảnh quân cờ
-        Format: {color}_{piece_type}.png
-        """
-        filename = f"{self._color.value}_{self._piece_type.value}.png"
-        return os.path.join(self.PIECES_DIR, filename)
+    def symbol(self) -> str:
+        """Symbol của quân cờ để hiển thị"""
+        color_prefix = 'w' if self.color == PieceColor.WHITE else 'b'
+        type_map = {
+            PieceType.PAWN: 'P',
+            PieceType.KNIGHT: 'N',
+            PieceType.BISHOP: 'B',
+            PieceType.ROOK: 'R',
+            PieceType.QUEEN: 'Q',
+            PieceType.KING: 'K'
+        }
+        return color_prefix + type_map[self.piece_type]
 
     @abstractmethod
     def get_possible_moves(self, board: Board) -> List[Move]:
@@ -101,84 +105,53 @@ class Piece(ABC):
         pass
 
     def can_move_to(self, target: Square, board: Board) -> bool:
-        """
-        Kiểm tra có thể di chuyển đến ô đích không
-        Args:
-            target: Ô đích
-            board: Bàn cờ hiện tại
-        """
-        # Không thể đi vào ô có quân cùng màu
-        if target.has_friendly_piece(self._color):
+        """Kiểm tra có thể di chuyển đến ô đích không"""
+        # Kiểm tra ô đích có quân cùng màu không
+        if target.piece and target.piece.color == self.color:
             return False
 
-        # Kiểm tra nước đi có nằm trong danh sách nước đi có thể
-        possible_moves = self.get_possible_moves(board)
-        return any(move.end_square == target for move in possible_moves)
-
-    def make_move(self, target: Square, board: Board) -> None:
-        """
-        Thực hiện di chuyển đến ô đích
-        Args:
-            target: Ô đích
-            board: Bàn cờ hiện tại
-        """
-        # Cập nhật vị trí cũ
-        self._position.remove_piece()
-        
-        # Cập nhật vị trí mới
-        old_piece = target.piece
-        if old_piece:
-            board.remove_piece(old_piece)
-        target.place_piece(self)
-        self._position = target
-        
-        # Đánh dấu đã di chuyển
-        self._has_moved = True
+        # Kiểm tra nước đi có hợp lệ không
+        for move in self.get_possible_moves(board):
+            if move.end_square == target:
+                return True
+        return False
 
     def can_attack_square(self, square: Square, board: Board) -> bool:
-        """
-        Kiểm tra có thể tấn công ô này không
-        Args:
-            square: Ô cần kiểm tra
-            board: Bàn cờ hiện tại
-        """
+        """Kiểm tra có thể tấn công ô này không"""
         return self.can_move_to(square, board)
 
-    def is_enemy(self, other: Optional[Piece]) -> bool:
-        """
-        Kiểm tra có phải quân địch không
-        Args:
-            other: Quân cờ cần kiểm tra
-        """
-        return other is not None and other.color != self._color
+    def make_move(self, target: Square, board: Board) -> None:
+        """Thực hiện di chuyển đến ô đích"""
+        if self.position:
+            self.position.remove_piece()
+        
+        captured_piece = target.piece
+        if captured_piece:
+            board.capture_piece(captured_piece)
+            
+        target.place_piece(self)
+        self._position = target
+        self._has_moved = True
 
     def get_moves_in_direction(self, board: Board, row_step: int, col_step: int) -> List[Move]:
-        """
-        Lấy các nước đi theo một hướng cụ thể
-        Args:
-            board: Bàn cờ hiện tại
-            row_step: Bước di chuyển theo hàng
-            col_step: Bước di chuyển theo cột
-        Returns:
-            Danh sách các nước đi có thể theo hướng đó
-        """
+        """Lấy các nước đi theo một hướng"""
         moves = []
-        current_row = self._position.row + row_step
-        current_col = self._position.col + col_step
+        current_row = self.position.row + row_step
+        current_col = self.position.col + col_step
 
-        while 0 <= current_row < 8 and 0 <= current_col < 8:
+        while board.is_valid_position(current_row, current_col):
             target = board.get_square(current_row, current_col)
             
-            # Nếu gặp quân cùng màu thì dừng
-            if target.has_friendly_piece(self._color):
+            # Gặp quân cùng màu
+            if target.piece and target.piece.color == self.color:
                 break
                 
-            # Thêm nước đi vào danh sách
-            from ..move import Move  # Import cục bộ để tránh circular import
-            moves.append(Move(self._position, target, self))
+            # Thêm nước đi
+            from ..move import Move
+            moves.append(Move(self.position, target, self))
             
-            # Nếu gặp quân địch thì dừng sau khi thêm nước đi
-            if target.has_enemy_piece(self._color):
+            # Gặp quân địch
+            if target.piece:
                 break
                 
             current_row += row_step
@@ -188,11 +161,8 @@ class Piece(ABC):
 
     def __str__(self) -> str:
         """String representation ngắn gọn"""
-        return f"{self._color.value} {self._piece_type.value}"
+        return self.symbol
 
     def __repr__(self) -> str:
         """String representation chi tiết"""
-        return (f"{self.__class__.__name__}("
-                f"color={self._color.value}, "
-                f"position={self._position}, "
-                f"has_moved={self._has_moved})")
+        return f"{self.__class__.__name__}(color={self.color.value}, position={self.position})"

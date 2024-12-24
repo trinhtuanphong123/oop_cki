@@ -12,7 +12,7 @@ from core.pieces.piece import Piece, PieceColor
 from player.player import Player
 from player.human_player import HumanPlayer
 from player.ai_player import AIPlayer, AILevel
-from ai.chess_ai import ChessAI
+from ai.chess_ai import ChessAi
 
 class GameMode(Enum):
     HUMAN_VS_HUMAN = "human_vs_human"

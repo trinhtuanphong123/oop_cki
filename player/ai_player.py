@@ -4,12 +4,12 @@ from dataclasses import dataclass
 from enum import Enum
 import time
 
-from .player import Player, PieceColor, PlayerStatus
+from player.player import Player, PieceColor, PlayerStatus
 from core.game_state import GameState 
 from core.move import Move
 from core.board import Board
 from core.pieces.piece import Piece
-from ai.chess_ai import AIStrategy
+from ai.chess_ai import ChessAi
 
 class AILevel(Enum):
     """Định nghĩa các cấp độ AI"""
@@ -47,7 +47,7 @@ class AIPlayer(Player):
                  name: str, 
                  color: PieceColor,
                  level: AILevel = AILevel.MEDIUM,
-                 strategy: Optional['AIStrategy'] = None):
+                 strategy: Optional['ChessAi'] = None):
         """
         Khởi tạo AI Player
         Args:
@@ -176,7 +176,7 @@ class AIPlayer(Player):
         }
         return configs.get(level, configs[AILevel.MEDIUM])
 
-    def _get_default_strategy(self, level: AILevel) -> 'AIStrategy':
+    def _get_default_strategy(self, level: AILevel) -> 'ChessAi':
         """Lấy chiến thuật mặc định cho mỗi cấp độ"""
         from ..ai.strategies import (RandomStrategy, MinimaxStrategy, 
                                AlphaBetaStrategy, IterativeDeepeningStrategy)

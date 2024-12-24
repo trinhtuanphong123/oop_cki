@@ -1,11 +1,12 @@
 # pieces/rook.py
 from typing import List, TYPE_CHECKING
 from .piece import Piece, PieceColor, PieceType
+from ..move import Move, MoveType
+from typing import Optional
 
 if TYPE_CHECKING:
     from ..board import Board
     from ..square import Square
-    from ..move import Move
 
 class Rook(Piece):
     """
@@ -24,9 +25,10 @@ class Rook(Piece):
             color: Màu của quân xe
             position: Vị trí ban đầu
         """
-        super().__init__(color, position, PieceType.ROOK)
+        super().__init__(color, position)
+        self._piece_type = PieceType.ROOK
 
-    def get_possible_moves(self, board: 'Board') -> List['Move']:
+    def get_possible_moves(self, board: 'Board') -> List[Move]:
         """
         Lấy tất cả các nước đi có thể của quân xe
         Args:
@@ -54,9 +56,9 @@ class Rook(Piece):
         """
         Kiểm tra xe có thể tham gia nhập thành không
         Returns:
-            True nếu xe chưa di chuyển
+            True nếu xe chưa di chuyển và ở vị trí ban đầu
         """
-        return not self.has_moved
+        return not self.has_moved and self._is_starting_position()
 
     def _is_starting_position(self) -> bool:
         """
@@ -64,11 +66,14 @@ class Rook(Piece):
         Returns:
             True nếu xe ở vị trí ban đầu
         """
+        if not self.position:
+            return False
+            
         row = 7 if self.color == PieceColor.WHITE else 0
         return (self.position.row == row and 
                 (self.position.col == 0 or self.position.col == 7))
 
-    def get_castle_square(self, is_kingside: bool) -> 'Square':
+    def get_castle_square(self, is_kingside: bool) -> Optional['Square']:
         """
         Lấy ô đích khi nhập thành
         Args:
@@ -76,43 +81,12 @@ class Rook(Piece):
         Returns:
             Ô đích của xe sau khi nhập thành
         """
+        if not self.position or not self.position.board:
+            return None
+            
         row = self.position.row
         col = 5 if is_kingside else 3
         return self.position.board.get_square(row, col)
-
-    def can_move_to(self, target: 'Square', board: 'Board') -> bool:
-        """
-        Kiểm tra có thể di chuyển đến ô đích không
-        Args:
-            target: Ô đích
-            board: Bàn cờ hiện tại
-        Returns:
-            True nếu có thể di chuyển đến ô đích
-        """
-        # Kiểm tra di chuyển theo hàng hoặc cột
-        if not (self.position.row == target.row or self.position.col == target.col):
-            return False
-
-        # Không thể đi vào ô có quân cùng màu
-        if target.has_friendly_piece(self.color):
-            return False
-
-        # Kiểm tra có bị chặn không
-        row_step = 0 if self.position.row == target.row else (
-            1 if target.row > self.position.row else -1)
-        col_step = 0 if self.position.col == target.col else (
-            1 if target.col > self.position.col else -1)
-
-        current_row = self.position.row + row_step
-        current_col = self.position.col + col_step
-
-        while (current_row != target.row or current_col != target.col):
-            if board.get_piece_at(current_row, current_col):
-                return False
-            current_row += row_step
-            current_col += col_step
-
-        return True
 
     def calculate_value(self) -> int:
         """
@@ -121,12 +95,14 @@ class Rook(Piece):
             Giá trị của quân xe
         """
         base_value = 500  # Giá trị cơ bản của xe
+        if not self.position:
+            return base_value
 
         # Điểm thưởng cho các vị trí chiến lược
         position_bonus = 0
 
         # Thưởng cho việc kiểm soát cột mở
-        if self._controls_open_file(self.position.board):
+        if self._controls_open_file():
             position_bonus += 30
 
         # Thưởng cho việc ở hàng 7 hoặc 8 (tấn công)
@@ -137,31 +113,27 @@ class Rook(Piece):
 
         return base_value + position_bonus
 
-    def _controls_open_file(self, board: 'Board') -> bool:
+    def _controls_open_file(self) -> bool:
         """
         Kiểm tra xe có kiểm soát cột trống không
-        Args:
-            board: Bàn cờ hiện tại
         Returns:
             True nếu xe kiểm soát cột trống
         """
+        if not self.position or not self.position.board:
+            return False
+            
         col = self.position.col
+        board = self.position.board
         
         # Kiểm tra từ vị trí xe đến cuối bàn cờ
         for row in range(8):
             if row == self.position.row:
                 continue
             piece = board.get_piece_at(row, col)
-            if isinstance(piece, Piece) and isinstance(piece, Rook):
+            if piece and isinstance(piece, Rook):
                 return False
         return True
 
     def __str__(self) -> str:
         """String representation ngắn gọn"""
-        return f"{'W' if self.color == PieceColor.WHITE else 'B'}R"
-
-    def __repr__(self) -> str:
-        """String representation chi tiết"""
-        return (f"Rook(color={self.color.value}, "
-                f"position={self.position}, "
-                f"has_moved={self.has_moved})")
+        return self.symbol

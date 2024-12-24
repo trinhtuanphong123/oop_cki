@@ -93,10 +93,11 @@ class Board:
         """Lấy danh sách quân cờ theo màu"""
         return self._pieces[color].copy()
 
-    def get_king(self, color: PieceColor) -> Optional[King]:
+    def get_king(self, color: PieceColor) -> Optional['King']:
         """Lấy quân vua theo màu"""
+        from .pieces.king import King  # Import ở đây để tránh circular import
         for piece in self._pieces[color]:
-            if isinstance(piece, King):
+            if isinstance(piece, King):  # Kiểm tra với class King
                 return piece
         return None
 
@@ -201,3 +202,11 @@ class Board:
     def __repr__(self) -> str:
         """String representation chi tiết"""
         return f"Board(pieces={len(self._pieces[PieceColor.WHITE]) + len(self._pieces[PieceColor.BLACK])})"
+    
+    def get_pieces_by_color(self, color: PieceColor) -> List[Piece]:
+        """Lấy danh sách quân cờ theo màu"""
+        return self._pieces[color].copy()
+
+    def get_pieces(self, color: PieceColor) -> List[Piece]:
+        """Lấy danh sách quân cờ theo màu (alias cho get_pieces_by_color)"""
+        return self.get_pieces_by_color(color)

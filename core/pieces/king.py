@@ -1,11 +1,11 @@
 # pieces/king.py
 from typing import List, Optional, TYPE_CHECKING
 from .piece import Piece, PieceColor, PieceType
+from ..move import Move, MoveType
 
 if TYPE_CHECKING:
     from ..board import Board
     from ..square import Square
-    from ..move import Move, MoveType
     from .rook import Rook
 
 class King(Piece):
@@ -25,9 +25,10 @@ class King(Piece):
             color: Màu của quân Vua
             position: Vị trí ban đầu
         """
-        super().__init__(color, position, PieceType.KING)
+        super().__init__(color, position)
+        self._piece_type = PieceType.KING
 
-    def get_possible_moves(self, board: 'Board') -> List['Move']:
+    def get_possible_moves(self, board: 'Board') -> List[Move]:
         """
         Lấy tất cả các nước đi có thể của quân Vua
         Args:
@@ -35,6 +36,9 @@ class King(Piece):
         Returns:
             Danh sách các nước đi có thể
         """
+        if not self.position or not board:
+            return []
+
         moves = []
 
         # Tất cả các hướng di chuyển có thể của vua
@@ -52,7 +56,7 @@ class King(Piece):
 
         return moves
 
-    def _get_normal_moves(self, board: 'Board', directions: List[tuple]) -> List['Move']:
+    def _get_normal_moves(self, board: 'Board', directions: List[tuple]) -> List[Move]:
         """
         Lấy các nước đi thông thường
         Args:
@@ -69,11 +73,12 @@ class King(Piece):
             if board.is_valid_position(new_row, new_col):
                 target = board.get_square(new_row, new_col)
                 if not target.has_friendly_piece(self.color):
-                    moves.append(self._create_move(target))
+                    move_type = MoveType(is_capture=target.piece is not None)
+                    moves.append(Move(self.position, target, self, move_type))
 
         return moves
 
-    def _get_castling_moves(self, board: 'Board') -> List['Move']:
+    def _get_castling_moves(self, board: 'Board') -> List[Move]:
         """
         Lấy các nước nhập thành có thể
         Args:
@@ -82,18 +87,20 @@ class King(Piece):
             Danh sách các nước nhập thành có thể
         """
         moves = []
-        if self.can_castle():
-            # Kiểm tra nhập thành cánh vua
-            kingside_rook = self._get_castling_rook(board, True)
-            if self._can_castle_with_rook(board, kingside_rook, True):
-                target = board.get_square(self.position.row, self.position.col + 2)
-                moves.append(self._create_castle_move(target, True))
+        if not self.can_castle():
+            return moves
 
-            # Kiểm tra nhập thành cánh hậu
-            queenside_rook = self._get_castling_rook(board, False)
-            if self._can_castle_with_rook(board, queenside_rook, False):
-                target = board.get_square(self.position.row, self.position.col - 2)
-                moves.append(self._create_castle_move(target, False))
+        # Kiểm tra nhập thành hai bên
+        for is_kingside in [True, False]:
+            rook = self._get_castling_rook(board, is_kingside)
+            if self._can_castle_with_rook(board, rook, is_kingside):
+                col_offset = 2 if is_kingside else -2
+                target = board.get_square(
+                    self.position.row, 
+                    self.position.col + col_offset
+                )
+                move_type = MoveType(is_castle=True)
+                moves.append(Move(self.position, target, self, move_type))
 
         return moves
 
@@ -106,104 +113,56 @@ class King(Piece):
         Returns:
             Xe để nhập thành hoặc None
         """
+        if not self.position:
+            return None
+
         row = self.position.row
         col = 7 if kingside else 0
         piece = board.get_piece_at(row, col)
         
         from .rook import Rook
-        if isinstance(piece, Rook) and piece.color == self.color:
-            return piece
-        return None
+        return piece if isinstance(piece, Rook) and piece.color == self.color else None
 
     def _can_castle_with_rook(self, board: 'Board', rook: Optional['Rook'], kingside: bool) -> bool:
         """
         Kiểm tra có thể nhập thành với xe không
-        Args:
-            board: Bàn cờ hiện tại
-            rook: Xe để nhập thành
-            kingside: True nếu là nhập thành cánh vua
-        Returns:
-            True nếu có thể nhập thành
         """
         if not rook or not rook.can_castle():
             return False
 
-        # Kiểm tra đường đi có trống không
-        direction = 1 if kingside else -1
-        start_col = self.position.col + direction
-        end_col = rook.position.col
-        
-        if not kingside:
-            # Cánh hậu cần thêm một ô trống
-            end_col += 1
-
-        col = start_col
-        while col != end_col:
-            if board.get_piece_at(self.position.row, col):
-                return False
-            col += direction
-
-        # Kiểm tra các ô vua đi qua có bị chiếu không
-        return not self._path_is_attacked(board, kingside)
-
-    def _path_is_attacked(self, board: 'Board', kingside: bool) -> bool:
-        """
-        Kiểm tra đường đi có bị tấn công không
-        Args:
-            board: Bàn cờ hiện tại
-            kingside: True nếu là nhập thành cánh vua
-        Returns:
-            True nếu đường đi bị tấn công
-        """
+        # Kiểm tra đường đi trống và không bị chiếu
         direction = 1 if kingside else -1
         col = self.position.col
-        end_col = col + (3 * direction)
         
-        while col != end_col:
+        while col != rook.position.col:
+            col += direction
+            if col == rook.position.col:
+                break
+                
+            # Kiểm tra ô trống
+            if board.get_piece_at(self.position.row, col):
+                return False
+                
+            # Kiểm tra ô không bị chiếu
             square = board.get_square(self.position.row, col)
             if board.is_square_attacked(square, self.color.opposite):
-                return True
-            col += direction
-            
-        return False
+                return False
 
-    def _create_move(self, target: 'Square') -> 'Move':
-        """Tạo nước đi thông thường"""
-        from ..move import Move, MoveType
-        return Move(self.position, target, self, MoveType())
-
-    def _create_castle_move(self, target: 'Square', is_kingside: bool) -> 'Move':
-        """Tạo nước nhập thành"""
-        from ..move import Move, MoveType
-        return Move(
-            self.position,
-            target,
-            self,
-            MoveType(is_castle=True)
-        )
+        return True
 
     def can_castle(self) -> bool:
         """Kiểm tra vua có thể nhập thành không"""
-        return not self.has_moved
+        return not self.has_moved and not self.is_in_check(self.position.board)
 
     def is_in_check(self, board: 'Board') -> bool:
         """Kiểm tra vua có đang bị chiếu không"""
-        return board.is_square_attacked(self.position, self.color.opposite)
+        return (board and self.position and 
+                board.is_square_attacked(self.position, self.color.opposite))
 
     def calculate_value(self) -> int:
-        """
-        Tính giá trị của quân vua
-        Returns:
-            Giá trị của quân vua
-        """
-        return 20000  # Giá trị tối đa vì vua là quân quan trọng nhất
+        """Giá trị của quân vua"""
+        return 20000  # Giá trị tối đa
 
     def __str__(self) -> str:
         """String representation ngắn gọn"""
-        return f"{'W' if self.color == PieceColor.WHITE else 'B'}K"
-
-    def __repr__(self) -> str:
-        """String representation chi tiết"""
-        return (f"King(color={self.color.value}, "
-                f"position={self.position}, "
-                f"has_moved={self.has_moved})")
+        return self.symbol
