@@ -27,6 +27,7 @@ class Queen(Piece):
         """
         super().__init__(color, position)
         self._piece_type = PieceType.QUEEN
+    
 
     def get_possible_moves(self, board: 'Board') -> List[Move]:
         """

@@ -26,7 +26,8 @@ class Pawn(Piece):
         super().__init__(color, position)
         self._piece_type = PieceType.PAWN
         self._promotion_row = 0 if color == PieceColor.WHITE else 7
-
+    
+    
     @property 
     def direction(self) -> int:
         """Hướng di chuyển: -1 cho trắng (đi lên), 1 cho đen (đi xuống)"""

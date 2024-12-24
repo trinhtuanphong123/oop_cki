@@ -27,7 +27,7 @@ class Rook(Piece):
         """
         super().__init__(color, position)
         self._piece_type = PieceType.ROOK
-
+    
     def get_possible_moves(self, board: 'Board') -> List[Move]:
         """
         Lấy tất cả các nước đi có thể của quân xe

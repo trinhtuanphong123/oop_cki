@@ -24,7 +24,9 @@ class Bishop(Piece):
             color: Màu của quân Tượng
             position: Vị trí ban đầu
         """
-        super().__init__(color, position, PieceType.BISHOP)
+        super().__init__(color, position)
+        self._piece_type = PieceType.BISHOP
+   
 
     def get_possible_moves(self, board: 'Board') -> List['Move']:
         """

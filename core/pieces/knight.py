@@ -26,7 +26,7 @@ class Knight(Piece):
         """
         super().__init__(color, position)
         self._piece_type = PieceType.KNIGHT
-
+    
     def get_possible_moves(self, board: 'Board') -> List[Move]:
         """
         Lấy tất cả các nước đi có thể của quân Mã
