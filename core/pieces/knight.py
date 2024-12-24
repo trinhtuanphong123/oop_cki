@@ -1,118 +1,188 @@
-from typing import List
-from piece import Piece
-from move import Move
-from board import Board
-from core.pieces.piece import PieceType, PieceColor
-from square import Square
+# pieces/knight.py
+from typing import List, TYPE_CHECKING
+from .piece import Piece, PieceColor, PieceType
+
+if TYPE_CHECKING:
+    from ..board import Board
+    from ..square import Square
+    from ..move import Move
 
 class Knight(Piece):
     """
-    Class Knight kế thừa từ Piece, đại diện cho quân mã trong cờ vua
-    Quân mã di chuyển theo hình chữ L: 2 ô theo một hướng và 1 ô theo hướng vuông góc
+    Class đại diện cho quân Mã trong cờ vua.
+    Đặc điểm:
+    - Di chuyển theo hình chữ L
+    - Có thể nhảy qua quân khác
+    - Là quân duy nhất có thể nhảy qua quân khác
+    - Đặc biệt mạnh ở vị trí trung tâm và trong tình huống bị chặn
     """
-    def __init__(self, color: PieceColor, square: Square):
+
+    def __init__(self, color: PieceColor, position: 'Square'):
         """
-        Khởi tạo quân mã
+        Khởi tạo quân Mã
         Args:
-            color: Màu của quân cờ (WHITE/BLACK)
-            square: Ô cờ mà quân mã đang đứng
+            color: Màu của quân Mã
+            position: Vị trí ban đầu
         """
-        super().__init__(color, square)
-        self._piece_type = PieceType.KNIGHT
-        # Các hướng di chuyển hình chữ L của mã
-        self._moves = [
+        super().__init__(color, position, PieceType.KNIGHT)
+
+    def get_possible_moves(self, board: 'Board') -> List['Move']:
+        """
+        Lấy tất cả các nước đi có thể của quân Mã
+        Args:
+            board: Bàn cờ hiện tại
+        Returns:
+            Danh sách các nước đi có thể
+        """
+        moves = []
+        
+        # Tất cả các nước đi hình chữ L có thể
+        knight_moves = [
             (-2, -1), (-2, 1),  # Lên 2 trái/phải 1
-            (2, -1), (2, 1),    # Xuống 2 trái/phải 1
-            (-1, -2), (1, -2),  # Trái 2 lên/xuống 1
-            (-1, 2), (1, 2)     # Phải 2 lên/xuống 1
+            (-1, -2), (-1, 2),  # Lên 1 trái/phải 2
+            (1, -2), (1, 2),    # Xuống 1 trái/phải 2
+            (2, -1), (2, 1)     # Xuống 2 trái/phải 1
         ]
 
-    @property
-    def piece_type(self) -> PieceType:
-        """Lấy loại quân cờ"""
-        return self._piece_type
+        for row_step, col_step in knight_moves:
+            new_row = self.position.row + row_step
+            new_col = self.position.col + col_step
 
-    def get_legal_moves(self, board: Board) -> List[Move]:
+            if board.is_valid_position(new_row, new_col):
+                target = board.get_square(new_row, new_col)
+                if not target.has_friendly_piece(self.color):
+                    moves.append(self._create_move(target))
+
+        return moves
+
+    def can_move_to(self, target: 'Square', board: 'Board') -> bool:
         """
-        Lấy tất cả các nước đi hợp lệ của quân mã
+        Kiểm tra có thể di chuyển đến ô đích không
         Args:
+            target: Ô đích
             board: Bàn cờ hiện tại
         Returns:
-            Danh sách các nước đi hợp lệ
+            True nếu có thể di chuyển đến ô đích
         """
-        legal_moves = []
-        current_square = self.square
-        row, col = current_square.row, current_square.col
+        if target.has_friendly_piece(self.color):
+            return False
 
-        # Kiểm tra từng nước đi theo hình chữ L
-        for move_row, move_col in self._moves:
-            next_row = row + move_row
-            next_col = col + move_col
-            
-            # Kiểm tra vị trí mới có hợp lệ không
-            if board.is_valid_position(next_row, next_col):
-                target_square = board.get_square(next_row, next_col)
-                target_piece = target_square.piece
+        # Kiểm tra di chuyển hình chữ L
+        row_diff = abs(target.row - self.position.row)
+        col_diff = abs(target.col - self.position.col)
 
-                # Nếu ô trống hoặc có quân địch
-                if target_piece is None:
-                    legal_moves.append(Move(current_square, target_square))
-                elif target_piece.color != self.color:
-                    legal_moves.append(Move(current_square, target_square, target_piece))
-
-        return legal_moves
-
-    def is_l_shape_move(self, move: Move) -> bool:
-        """
-        Kiểm tra xem một nước đi có phải là nước đi hình chữ L hợp lệ không
-        Args:
-            move: Nước đi cần kiểm tra
-        Returns:
-            True nếu là nước đi hình chữ L hợp lệ, False nếu không
-        """
-        row_diff = abs(move.end_square.row - move.start_square.row)
-        col_diff = abs(move.end_square.col - move.start_square.col)
-        
-        # Kiểm tra di chuyển hình chữ L (2-1 hoặc 1-2)
         return (row_diff == 2 and col_diff == 1) or (row_diff == 1 and col_diff == 2)
 
-    def clone(self) -> 'Knight':
+    def calculate_value(self) -> int:
         """
-        Tạo bản sao của quân mã
+        Tính giá trị của quân mã dựa trên vị trí
         Returns:
-            Bản sao của quân mã hiện tại
+            Giá trị của quân mã
         """
-        return Knight(self.color, self.square)
+        base_value = 320  # Giá trị cơ bản của mã
 
-    def get_piece_value(self) -> int:
+        # Điểm thưởng cho các vị trí chiến lược
+        position_bonus = 0
+
+        # Thưởng cho vị trí trung tâm
+        position_bonus += self._calculate_center_bonus()
+
+        # Thưởng cho việc kiểm soát nhiều ô
+        mobility_bonus = self._calculate_mobility_bonus(self.position.board)
+        position_bonus += mobility_bonus
+
+        # Thưởng cho outpost (vị trí tiền đồn được bảo vệ bởi tốt)
+        if self._is_outpost(self.position.board):
+            position_bonus += 30
+
+        # Phạt cho việc ở gần góc bàn cờ
+        if self._is_near_corner():
+            position_bonus -= 20
+
+        return base_value + position_bonus
+
+    def _calculate_center_bonus(self) -> int:
         """
-        Lấy giá trị của quân mã cho việc tính điểm
+        Tính điểm thưởng cho vị trí trung tâm
         Returns:
-            Giá trị quân mã
+            Điểm thưởng
         """
-        return 3
+        row, col = self.position.row, self.position.col
+        
+        # Trung tâm (4 ô giữa)
+        if (row in [3, 4] and col in [3, 4]):
+            return 30
+            
+        # Trung tâm mở rộng
+        if (row in [2, 3, 4, 5] and col in [2, 3, 4, 5]):
+            return 15
+            
+        return 0
 
-    def __str__(self) -> str:
-        """String representation của quân mã"""
-        color_name = "White" if self.color == PieceColor.WHITE else "Black"
-        return f"{color_name} Knight at {self.square}"
-
-    def get_symbol(self) -> str:
+    def _calculate_mobility_bonus(self, board: 'Board') -> int:
         """
-        Lấy ký hiệu của quân mã để hiển thị
-        Returns:
-            'N' cho mã trắng, 'n' cho mã đen
-        """
-        return 'N' if self.color == PieceColor.WHITE else 'n'
-
-    def can_reach_square(self, target_square: Square, board: Board) -> bool:
-        """
-        Kiểm tra xem quân mã có thể đi đến ô đích không
+        Tính điểm thưởng cho khả năng di chuyển
         Args:
-            target_square: Ô đích cần kiểm tra
             board: Bàn cờ hiện tại
         Returns:
-            True nếu có thể đi đến, False nếu không
+            Điểm thưởng dựa trên số nước đi có thể
         """
-        move = Move(self.square, target_square)
-        return self.is_l_shape_move(move)
+        possible_moves = len(self.get_possible_moves(board))
+        return possible_moves * 3  # 3 điểm cho mỗi nước đi có thể
+
+    def _is_outpost(self, board: 'Board') -> bool:
+        """
+        Kiểm tra mã có đang ở vị trí tiền đồn không
+        Args:
+            board: Bàn cờ hiện tại
+        Returns:
+            True nếu mã đang ở vị trí tiền đồn
+        """
+        from .pawn import Pawn
+
+        # Kiểm tra có được bảo vệ bởi tốt không
+        row, col = self.position.row, self.position.col
+        pawn_row = row + (1 if self.color == PieceColor.WHITE else -1)
+        
+        for pawn_col in [col-1, col+1]:
+            if board.is_valid_position(pawn_row, pawn_col):
+                piece = board.get_piece_at(pawn_row, pawn_col)
+                if isinstance(piece, Pawn) and piece.color == self.color:
+                    return True
+        
+        return False
+
+    def _is_near_corner(self) -> bool:
+        """
+        Kiểm tra mã có gần góc bàn cờ không
+        Returns:
+            True nếu mã đang ở gần góc
+        """
+        row, col = self.position.row, self.position.col
+        return (row in [0, 1, 6, 7] and col in [0, 1, 6, 7])
+
+    def get_attack_squares(self, board: 'Board') -> List['Square']:
+        """
+        Lấy danh sách các ô mã có thể tấn công
+        Args:
+            board: Bàn cờ hiện tại
+        Returns:
+            Danh sách các ô có thể tấn công
+        """
+        attack_squares = []
+        moves = self.get_possible_moves(board)
+        
+        for move in moves:
+            attack_squares.append(move.end_square)
+            
+        return attack_squares
+
+    def __str__(self) -> str:
+        """String representation ngắn gọn"""
+        return f"{'W' if self.color == PieceColor.WHITE else 'B'}N"
+
+    def __repr__(self) -> str:
+        """String representation chi tiết"""
+        return (f"Knight(color={self.color.value}, "
+                f"position={self.position}, "
+                f"has_moved={self.has_moved})")

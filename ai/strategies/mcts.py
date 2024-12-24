@@ -3,193 +3,197 @@
 import math
 import time
 import random
-from typing import Optional, List, Dict
-from strategies import AIStrategy
+from typing import Optional, List, Dict, Callable
+from dataclasses import dataclass
+from .strategies import AIStrategy
 from ...core.move import Move
-from ...core.game_rule import GameRule
 from ...core.game_state import GameState
 from ...core.pieces.piece import PieceColor
 
+@dataclass
+class MCTSStats:
+    """Thống kê cho MCTS"""
+    nodes_explored: int = 0
+    max_depth: int = 0
+    execution_time: float = 0
+    total_simulations: int = 0
+
 class MCTSNode:
-    """
-    Node trong cây MCTS
-    Lưu trữ thông tin về trạng thái game và thống kê
-    """
-    def __init__(self, game_state: GameState, parent=None, move: Optional[Move] = None):
+    """Node trong cây MCTS"""
+    def __init__(self, 
+                 game_state: GameState, 
+                 parent: Optional['MCTSNode'] = None,
+                 move: Optional[Move] = None):
         self.game_state = game_state
         self.parent = parent
-        self.move = move  # Nước đi dẫn đến node này
-        self.children: List[MCTSNode] = []
-        self.wins = 0  # Số ván thắng
-        self.visits = 0  # Số lần thăm
-        self.untried_moves = self._get_legal_moves()  # Các nước đi chưa thử
-
-    def _get_legal_moves(self) -> List[Move]:
-        """Lấy danh sách các nước đi hợp lệ"""
-        return self._get_all_legal_moves(self.game_state)
-
-    def _get_all_legal_moves(self, game_state: GameState) -> List[Move]:
-        """Lấy tất cả nước đi hợp lệ cho trạng thái hiện tại"""
-        legal_moves = []
-        for piece in game_state.board.get_pieces(game_state.current_player):
-            legal_moves.extend(game_state.get_legal_moves(piece))
-        return legal_moves
+        self.move = move
+        self.children: List['MCTSNode'] = []
+        self.wins = 0
+        self.visits = 0
+        self.untried_moves = self._get_legal_moves()
+        self.depth = 0 if parent is None else parent.depth + 1
 
     def get_ucb_score(self, exploration_constant: float) -> float:
-        """
-        Tính điểm UCB (Upper Confidence Bound) cho node
-        Args:
-            exploration_constant: Hệ số thăm dò (thường là √2)
-        Returns:
-            Điểm UCB của node
-        """
+        """Tính điểm UCB"""
         if self.visits == 0:
             return float('inf')
         
         exploitation = self.wins / self.visits
-        exploration = exploration_constant * math.sqrt(math.log(self.parent.visits) / self.visits)
+        exploration = exploration_constant * math.sqrt(
+            math.log(self.parent.visits) / self.visits
+        )
         return exploitation + exploration
 
+    def _get_legal_moves(self) -> List[Move]:
+        """Lấy danh sách nước đi hợp lệ"""
+        return self.game_state.get_legal_moves()
+
 class MCTSStrategy(AIStrategy):
-    """
-    Chiến thuật sử dụng Monte Carlo Tree Search
-    MCTS kết hợp tìm kiếm cây với mô phỏng ngẫu nhiên
-    """
+    """Monte Carlo Tree Search strategy"""
     def __init__(self, exploration_constant: float = math.sqrt(2)):
         self.exploration_constant = exploration_constant
-        self.root = None
-        self.nodes_explored = 0
+        self.stats = MCTSStats()
+        self.root: Optional[MCTSNode] = None
 
-    def find_best_move(self, game_state: GameState, time_limit: float, depth: int) -> Optional[Move]:
-        """
-        Tìm nước đi tốt nhất sử dụng MCTS
-        Args:
-            game_state: Trạng thái hiện tại của game
-            time_limit: Thời gian tối đa cho phép suy nghĩ
-            depth: Độ sâu tối đa cho mô phỏng (không bắt buộc với MCTS)
-        Returns:
-            Nước đi tốt nhất tìm được
-        """
-        self.nodes_explored = 0
+    def find_best_move(self,
+                       game_state: GameState,
+                       time_limit: float,
+                       depth: int,
+                       evaluation_fn: Callable[[GameState], float]) -> Optional[Move]:
+        """Tìm nước đi tốt nhất bằng MCTS"""
+        # Reset statistics
+        self.stats = MCTSStats()
         start_time = time.time()
+        
+        # Khởi tạo root node
         self.root = MCTSNode(game_state)
 
-        # Thực hiện MCTS cho đến khi hết thời gian
+        # Chạy MCTS cho đến khi hết thời gian
         while time.time() - start_time < time_limit:
             node = self._select(self.root)
-            simulation_result = self._simulate(node.game_state)
-            self._backpropagate(node, simulation_result)
-            self.nodes_explored += 1
+            if not node.game_state.is_game_over():
+                node = self._expand(node)
+            
+            result = self._simulate(node, evaluation_fn)
+            self._backpropagate(node, result)
+            
+            self.stats.nodes_explored += 1
+            self.stats.max_depth = max(self.stats.max_depth, node.depth)
+            self.stats.total_simulations += 1
 
-        # Chọn node con có số lần thăm nhiều nhất
-        if not self.root.children:
-            return None
+        self.stats.execution_time = time.time() - start_time
 
-        best_child = max(self.root.children, key=lambda c: c.visits)
-        return best_child.move
+        # Chọn nước đi tốt nhất
+        return self._get_best_move()
+
+    def analyze_position(self,
+                        game_state: GameState,
+                        depth: int,
+                        time_limit: float) -> dict:
+        """Phân tích vị trí hiện tại"""
+        if self.root is None:
+            return {"error": "No analysis available"}
+
+        analysis = {
+            "stats": {
+                "nodes_explored": self.stats.nodes_explored,
+                "max_depth": self.stats.max_depth,
+                "execution_time": self.stats.execution_time,
+                "total_simulations": self.stats.total_simulations
+            },
+            "best_moves": [],
+            "position_evaluation": {}
+        }
+
+        # Thêm top 3 nước đi tốt nhất
+        sorted_children = sorted(
+            self.root.children,
+            key=lambda n: n.visits,
+            reverse=True
+        )[:3]
+
+        for child in sorted_children:
+            analysis["best_moves"].append({
+                "move": str(child.move),
+                "visits": child.visits,
+                "win_rate": child.wins / child.visits if child.visits > 0 else 0
+            })
+
+        return analysis
 
     def _select(self, node: MCTSNode) -> MCTSNode:
-        """
-        Chọn node để mở rộng theo UCB
-        Args:
-            node: Node bắt đầu
-        Returns:
-            Node được chọn để mở rộng
-        """
-        while not node.game_state.is_game_over:
+        """Chọn node theo UCB"""
+        while not node.game_state.is_game_over():
             if node.untried_moves:
-                return self._expand(node)
+                return node
             
             if not node.children:
                 return node
                 
-            node = self._select_ucb(node)
+            node = max(
+                node.children,
+                key=lambda n: n.get_ucb_score(self.exploration_constant)
+            )
         return node
 
     def _expand(self, node: MCTSNode) -> MCTSNode:
-        """
-        Mở rộng node bằng cách thêm một node con mới
-        Args:
-            node: Node cần mở rộng
-        Returns:
-            Node con mới được tạo
-        """
+        """Mở rộng node"""
+        if not node.untried_moves:
+            return node
+            
         move = random.choice(node.untried_moves)
         node.untried_moves.remove(move)
         
         new_state = node.game_state.clone()
         new_state.make_move(move)
         
-        child_node = MCTSNode(new_state, parent=node, move=move)
-        node.children.append(child_node)
-        return child_node
+        new_node = MCTSNode(new_state, parent=node, move=move)
+        node.children.append(new_node)
+        return new_node
 
-    def _simulate(self, game_state: GameState) -> float:
-        """
-        Thực hiện mô phỏng từ trạng thái game
-        Args:
-            game_state: Trạng thái bắt đầu mô phỏng
-        Returns:
-            1.0 nếu thắng, 0.0 nếu thua, 0.5 nếu hòa
-        """
-        temp_state = game_state.clone()
-        max_moves = 100  # Giới hạn số nước để tránh vòng lặp vô hạn
+    def _simulate(self,
+                 node: MCTSNode,
+                 evaluation_fn: Callable[[GameState], float]) -> float:
+        """Thực hiện mô phỏng"""
+        state = node.game_state.clone()
         
-        while not temp_state.is_game_over and max_moves > 0:
-            moves = self._get_legal_moves(temp_state)
+        while not state.is_game_over():
+            moves = state.get_legal_moves()
             if not moves:
                 break
-            move = random.choice(moves)
-            temp_state.make_move(move)
-            max_moves -= 1
+            state.make_move(random.choice(moves))
 
-        # Đánh giá kết quả
-        if temp_state.is_checkmate():
-            return 1.0 if temp_state.current_player != game_state.current_player else 0.0
-        return 0.5  # Hòa
+        return self._get_simulation_result(state, evaluation_fn)
 
     def _backpropagate(self, node: MCTSNode, result: float) -> None:
-        """
-        Lan truyền kết quả ngược lên cây
-        Args:
-            node: Node bắt đầu lan truyền
-            result: Kết quả mô phỏng
-        """
-        while node is not None:
+        """Lan truyền kết quả"""
+        while node:
             node.visits += 1
             node.wins += result
-            result = 1 - result  # Đảo kết quả cho người chơi đối phương
+            result = 1 - result
             node = node.parent
 
-    def _select_ucb(self, node: MCTSNode) -> MCTSNode:
-        """
-        Chọn node con tốt nhất theo công thức UCB
-        Args:
-            node: Node cha
-        Returns:
-            Node con được chọn
-        """
-        return max(node.children, key=lambda c: c.get_ucb_score(self.exploration_constant))
+    def _get_best_move(self) -> Optional[Move]:
+        """Lấy nước đi tốt nhất"""
+        if not self.root or not self.root.children:
+            return None
 
-    def evaluate_position(self, game_state: GameState) -> float:
-        """
-        Đánh giá vị trí dựa trên số liệu thống kê MCTS
-        Args:
-            game_state: Trạng thái cần đánh giá
-        Returns:
-            Điểm đánh giá vị trí
-        """
-        if self.root is None:
-            return 0.0
-            
-        for child in self.root.children:
-            if child.game_state == game_state:
-                return child.wins / child.visits if child.visits > 0 else 0.0
-                
-        return 0.0
+        return max(
+            self.root.children,
+            key=lambda n: n.visits
+        ).move
+
+    def _get_simulation_result(self,
+                             state: GameState,
+                             evaluation_fn: Callable[[GameState], float]) -> float:
+        """Tính kết quả mô phỏng"""
+        if state.is_checkmate():
+            return 1.0 if state.current_player == self.root.game_state.current_player else 0.0
+        elif state.is_draw():
+            return 0.5
+        
+        eval_score = evaluation_fn(state)
+        return (eval_score + 1) / 2  # Normalize to [0,1]
 
     def __str__(self) -> str:
-        return f"MCTS Strategy (explored {self.nodes_explored} nodes)"
-
-    def __repr__(self) -> str:
-        return f"MCTSStrategy(exploration_constant={self.exploration_constant})"
+        return f"MCTS Strategy (explored {self.stats.nodes_explored} nodes)"

@@ -1,49 +1,42 @@
-from typing import List, Tuple, Optional
-from piece import Piece
-from move import Move
-from board import Board
-from core.pieces.piece import PieceType, PieceColor
-from square import Square
+# pieces/rook.py
+from typing import List, TYPE_CHECKING
+from .piece import Piece, PieceColor, PieceType
+
+if TYPE_CHECKING:
+    from ..board import Board
+    from ..square import Square
+    from ..move import Move
 
 class Rook(Piece):
     """
-    Class Rook kế thừa từ Piece, đại diện cho quân xe trong cờ vua
-    Quân xe di chuyển theo chiều ngang hoặc dọc, không giới hạn số ô
+    Class đại diện cho quân xe trong cờ vua.
+    Đặc điểm di chuyển:
+    - Di chuyển theo hàng ngang và dọc
+    - Không giới hạn số ô di chuyển
+    - Không thể đi qua quân khác
+    - Có thể tham gia nhập thành với vua
     """
-    def __init__(self, color: PieceColor, square: Square):
+
+    def __init__(self, color: PieceColor, position: 'Square'):
         """
         Khởi tạo quân xe
         Args:
-            color: Màu của quân cờ (WHITE/BLACK)
-            square: Ô cờ mà quân xe đang đứng
+            color: Màu của quân xe
+            position: Vị trí ban đầu
         """
-        super().__init__(color, square)
-        self._piece_type = PieceType.ROOK
-        self._has_moved = False
+        super().__init__(color, position, PieceType.ROOK)
 
-    @property
-    def piece_type(self) -> PieceType:
-        """Lấy loại quân cờ"""
-        return self._piece_type
-
-    @property
-    def has_moved(self) -> bool:
-        """Kiểm tra quân xe đã di chuyển chưa (cho nhập thành)"""
-        return self._has_moved
-
-    def get_legal_moves(self, board: Board) -> List[Move]:
+    def get_possible_moves(self, board: 'Board') -> List['Move']:
         """
-        Lấy tất cả các nước đi hợp lệ của quân xe
+        Lấy tất cả các nước đi có thể của quân xe
         Args:
             board: Bàn cờ hiện tại
         Returns:
-            Danh sách các nước đi hợp lệ
+            Danh sách các nước đi có thể
         """
-        legal_moves = []
-        current_square = self.square
-        row, col = current_square.row, current_square.col
+        moves = []
 
-        # Các hướng di chuyển của xe: ngang và dọc
+        # Các hướng di chuyển của xe (hàng ngang và dọc)
         directions = [
             (-1, 0),  # Lên
             (1, 0),   # Xuống
@@ -51,76 +44,124 @@ class Rook(Piece):
             (0, 1)    # Phải
         ]
 
-        for dir_row, dir_col in directions:
-            next_row, next_col = row + dir_row, col + dir_col
-            
-            # Tiếp tục di chuyển theo hướng cho đến khi gặp chướng ngại
-            while board.is_valid_position(next_row, next_col):
-                target_square = board.get_square(next_row, next_col)
-                target_piece = target_square.piece
+        # Lấy nước đi theo từng hướng
+        for row_step, col_step in directions:
+            moves.extend(self.get_moves_in_direction(board, row_step, col_step))
 
-                # Nếu ô trống
-                if target_piece is None:
-                    legal_moves.append(Move(current_square, target_square))
-                
-                # Nếu gặp quân địch
-                elif target_piece.color != self.color:
-                    legal_moves.append(Move(current_square, target_square, target_piece))
-                    break
-                
-                # Nếu gặp quân cùng màu
-                else:
-                    break
-
-                next_row += dir_row
-                next_col += dir_col
-
-        return legal_moves
-
-    def move_to(self, target_square: Square) -> None:
-        """
-        Di chuyển quân xe đến ô mới
-        Args:
-            target_square: Ô đích
-        """
-        super().move_to(target_square)
-        self._has_moved = True
+        return moves
 
     def can_castle(self) -> bool:
         """
-        Kiểm tra quân xe có thể thực hiện nhập thành không
+        Kiểm tra xe có thể tham gia nhập thành không
         Returns:
-            True nếu có thể nhập thành, False nếu không
+            True nếu xe chưa di chuyển
         """
-        return not self._has_moved
+        return not self.has_moved
 
-    def clone(self) -> 'Rook':
+    def _is_starting_position(self) -> bool:
         """
-        Tạo bản sao của quân xe
+        Kiểm tra xe có đang ở vị trí ban đầu không
         Returns:
-            Bản sao của quân xe hiện tại
+            True nếu xe ở vị trí ban đầu
         """
-        new_rook = Rook(self.color, self.square)
-        new_rook._has_moved = self._has_moved
-        return new_rook
+        row = 7 if self.color == PieceColor.WHITE else 0
+        return (self.position.row == row and 
+                (self.position.col == 0 or self.position.col == 7))
 
-    def get_piece_value(self) -> int:
+    def get_castle_square(self, is_kingside: bool) -> 'Square':
         """
-        Lấy giá trị của quân xe cho việc tính điểm
+        Lấy ô đích khi nhập thành
+        Args:
+            is_kingside: True nếu là nhập thành cánh vua
         Returns:
-            Giá trị quân xe
+            Ô đích của xe sau khi nhập thành
         """
-        return 5
+        row = self.position.row
+        col = 5 if is_kingside else 3
+        return self.position.board.get_square(row, col)
+
+    def can_move_to(self, target: 'Square', board: 'Board') -> bool:
+        """
+        Kiểm tra có thể di chuyển đến ô đích không
+        Args:
+            target: Ô đích
+            board: Bàn cờ hiện tại
+        Returns:
+            True nếu có thể di chuyển đến ô đích
+        """
+        # Kiểm tra di chuyển theo hàng hoặc cột
+        if not (self.position.row == target.row or self.position.col == target.col):
+            return False
+
+        # Không thể đi vào ô có quân cùng màu
+        if target.has_friendly_piece(self.color):
+            return False
+
+        # Kiểm tra có bị chặn không
+        row_step = 0 if self.position.row == target.row else (
+            1 if target.row > self.position.row else -1)
+        col_step = 0 if self.position.col == target.col else (
+            1 if target.col > self.position.col else -1)
+
+        current_row = self.position.row + row_step
+        current_col = self.position.col + col_step
+
+        while (current_row != target.row or current_col != target.col):
+            if board.get_piece_at(current_row, current_col):
+                return False
+            current_row += row_step
+            current_col += col_step
+
+        return True
+
+    def calculate_value(self) -> int:
+        """
+        Tính giá trị của quân xe dựa trên vị trí
+        Returns:
+            Giá trị của quân xe
+        """
+        base_value = 500  # Giá trị cơ bản của xe
+
+        # Điểm thưởng cho các vị trí chiến lược
+        position_bonus = 0
+
+        # Thưởng cho việc kiểm soát cột mở
+        if self._controls_open_file(self.position.board):
+            position_bonus += 30
+
+        # Thưởng cho việc ở hàng 7 hoặc 8 (tấn công)
+        if self.color == PieceColor.WHITE and self.position.row <= 1:
+            position_bonus += 20
+        elif self.color == PieceColor.BLACK and self.position.row >= 6:
+            position_bonus += 20
+
+        return base_value + position_bonus
+
+    def _controls_open_file(self, board: 'Board') -> bool:
+        """
+        Kiểm tra xe có kiểm soát cột trống không
+        Args:
+            board: Bàn cờ hiện tại
+        Returns:
+            True nếu xe kiểm soát cột trống
+        """
+        col = self.position.col
+        
+        # Kiểm tra từ vị trí xe đến cuối bàn cờ
+        for row in range(8):
+            if row == self.position.row:
+                continue
+            piece = board.get_piece_at(row, col)
+            if isinstance(piece, Piece) and isinstance(piece, Rook):
+                return False
+        return True
 
     def __str__(self) -> str:
-        """String representation của quân xe"""
-        color_name = "White" if self.color == PieceColor.WHITE else "Black"
-        return f"{color_name} Rook at {self.square}"
+        """String representation ngắn gọn"""
+        return f"{'W' if self.color == PieceColor.WHITE else 'B'}R"
 
-    def get_symbol(self) -> str:
-        """
-        Lấy ký hiệu của quân xe để hiển thị
-        Returns:
-            'R' cho xe trắng, 'r' cho xe đen
-        """
-        return 'R' if self.color == PieceColor.WHITE else 'r'
+    def __repr__(self) -> str:
+        """String representation chi tiết"""
+        return (f"Rook(color={self.color.value}, "
+                f"position={self.position}, "
+                f"has_moved={self.has_moved})")

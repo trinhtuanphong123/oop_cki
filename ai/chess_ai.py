@@ -1,221 +1,189 @@
 # ai/chess_ai.py
+from typing import Optional, List, Dict, Tuple, Type
+from dataclasses import dataclass
+from enum import Enum
+import time
 
-from typing import Optional, List, Dict, Tuple
 from ..core.move import Move
 from ..core.game_state import GameState
 from ..core.game_rule import GameRule
 from ..core.pieces.piece import Piece, PieceColor, PieceType
 from ..core.board import Board
 from .strategies.strategies import AIStrategy
+from .evaluation.position_tables import PositionTables
+from .evaluation.evaluator import PositionEvaluator
+
+class AIEvaluationType(Enum):
+    """Các loại đánh giá vị trí"""
+    BASIC = "basic"           # Chỉ đánh giá quân
+    STANDARD = "standard"     # Đánh giá quân + vị trí
+    ADVANCED = "advanced"     # Đánh giá đầy đủ các yếu tố
+
+@dataclass
+class EvaluationConfig:
+    """Cấu hình cho việc đánh giá vị trí"""
+    material_weight: float = 1.0
+    position_weight: float = 0.3
+    pawn_structure_weight: float = 0.2
+    center_control_weight: float = 0.1
+    king_safety_weight: float = 0.2
+    mobility_weight: float = 0.15
+    development_weight: float = 0.1
 
 class ChessAI:
     """
-    Class cơ sở cho AI cờ vua
-    Cung cấp các chức năng cơ bản và interface cho các chiến thuật AI
+    Class quản lý AI cờ vua.
+    Cung cấp interface cho các chiến thuật và đánh giá vị trí.
     """
-    def __init__(self, strategy: AIStrategy):
+    def __init__(self, 
+                 strategy: AIStrategy,
+                 evaluation_type: AIEvaluationType = AIEvaluationType.STANDARD):
         """
-        Khởi tạo AI với chiến thuật cụ thể
+        Khởi tạo Chess AI
         Args:
-            strategy: Chiến thuật AI được sử dụng
+            strategy: Chiến thuật AI sử dụng
+            evaluation_type: Loại đánh giá vị trí
         """
         self._strategy = strategy
-        self._depth = 3  # Độ sâu tìm kiếm mặc định
+        self._evaluation_type = evaluation_type
+        self._evaluator = PositionEvaluator()
+        self._position_tables = PositionTables()
         
-        # Giá trị cơ bản của các quân cờ
-        self._piece_values = {
-            PieceType.PAWN: 100,
-            PieceType.KNIGHT: 320,
-            PieceType.BISHOP: 330,
-            PieceType.ROOK: 500,
-            PieceType.QUEEN: 900,
-            PieceType.KING: 20000
+        # Cấu hình
+        self._config = EvaluationConfig()
+        self._depth = 3
+        
+        # Cache và thống kê
+        self._position_cache: Dict[str, float] = {}
+        self._evaluation_count = 0
+        self._cache_hits = 0
+        self._total_eval_time = 0.0
+
+    @property
+    def stats(self) -> Dict:
+        """Thống kê về hoạt động của AI"""
+        return {
+            "evaluations": self._evaluation_count,
+            "cache_hits": self._cache_hits,
+            "cache_hit_rate": (self._cache_hits / self._evaluation_count 
+                             if self._evaluation_count > 0 else 0),
+            "average_eval_time": (self._total_eval_time / self._evaluation_count 
+                                if self._evaluation_count > 0 else 0)
         }
 
-        # Bảng giá trị vị trí cho từng loại quân
-        self._position_values = self._init_position_tables()
-
-    def get_best_move(self, game_state: GameState, thinking_time: float) -> Optional[Move]:
+    def get_best_move(self, 
+                      game_state: GameState, 
+                      thinking_time: float) -> Optional[Move]:
         """
-        Tìm nước đi tốt nhất trong thời gian cho phép
+        Tìm nước đi tốt nhất
         Args:
-            game_state: Trạng thái hiện tại của game
-            thinking_time: Thời gian suy nghĩ tối đa (giây)
+            game_state: Trạng thái game hiện tại
+            thinking_time: Thời gian suy nghĩ (giây)
         Returns:
-            Nước đi tốt nhất tìm được
+            Nước đi tốt nhất hoặc None
         """
-        return self._strategy.find_best_move(game_state, thinking_time, self._depth)
+        start_time = time.time()
+        
+        # Kiểm tra cache
+        position_key = self._get_position_key(game_state)
+        if position_key in self._position_cache:
+            self._cache_hits += 1
+        
+        # Tìm nước đi tốt nhất
+        best_move = self._strategy.find_best_move(
+            game_state,
+            thinking_time,
+            self._depth,
+            self.evaluate_position
+        )
+        
+        # Cập nhật thống kê
+        self._total_eval_time += time.time() - start_time
+        
+        return best_move
 
     def evaluate_position(self, game_state: GameState) -> float:
         """
         Đánh giá vị trí hiện tại
         Args:
-            game_state: Trạng thái game cần đánh giá
+            game_state: Trạng thái cần đánh giá
         Returns:
-            Điểm số đánh giá vị trí (dương = có lợi cho trắng, âm = có lợi cho đen)
+            Điểm số đánh giá
         """
-        board = game_state.board
-        evaluation = 0.0
+        self._evaluation_count += 1
+        start_time = time.time()
 
-        # Đánh giá material (quân cờ)
-        material_score = self._evaluate_material(board)
+        # Kiểm tra cache
+        position_key = self._get_position_key(game_state)
+        if position_key in self._position_cache:
+            self._cache_hits += 1
+            return self._position_cache[position_key]
+
+        # Tính điểm đánh giá
+        score = 0.0
         
-        # Đánh giá vị trí các quân
-        position_score = self._evaluate_piece_positions(board)
-        
-        # Đánh giá cấu trúc tốt
-        pawn_structure_score = self._evaluate_pawn_structure(board)
-        
-        # Đánh giá kiểm soát trung tâm
-        center_control_score = self._evaluate_center_control(board)
-        
-        # Tổng hợp điểm với các trọng số
-        evaluation = (
-            material_score * 1.0 +
-            position_score * 0.3 +
-            pawn_structure_score * 0.2 +
-            center_control_score * 0.1
+        # Material evaluation
+        material_score = self._evaluator.evaluate_material(
+            game_state.board,
+            self._position_tables.piece_values
+        )
+        score += material_score * self._config.material_weight
+
+        # Position evaluation
+        if self._evaluation_type != AIEvaluationType.BASIC:
+            position_score = self._evaluator.evaluate_positions(
+                game_state.board,
+                self._position_tables.position_tables
+            )
+            score += position_score * self._config.position_weight
+
+        # Advanced evaluation
+        if self._evaluation_type == AIEvaluationType.ADVANCED:
+            # Pawn structure
+            pawn_score = self._evaluator.evaluate_pawn_structure(game_state.board)
+            score += pawn_score * self._config.pawn_structure_weight
+
+            # Center control
+            center_score = self._evaluator.evaluate_center_control(game_state.board)
+            score += center_score * self._config.center_control_weight
+
+            # King safety
+            king_safety_score = self._evaluator.evaluate_king_safety(game_state.board)
+            score += king_safety_score * self._config.king_safety_weight
+
+            # Mobility
+            mobility_score = self._evaluator.evaluate_mobility(game_state)
+            score += mobility_score * self._config.mobility_weight
+
+        # Cache kết quả
+        self._position_cache[position_key] = score
+        self._total_eval_time += time.time() - start_time
+
+        return score
+
+    def set_evaluation_weights(self, weights: Dict[str, float]) -> None:
+        """Cập nhật trọng số đánh giá"""
+        for key, value in weights.items():
+            if hasattr(self._config, f"{key}_weight"):
+                setattr(self._config, f"{key}_weight", value)
+
+    def set_evaluation_type(self, eval_type: AIEvaluationType) -> None:
+        """Thay đổi loại đánh giá"""
+        self._evaluation_type = eval_type
+        self._position_cache.clear()
+
+    def _get_position_key(self, game_state: GameState) -> str:
+        """Tạo key duy nhất cho vị trí"""
+        board = game_state.board
+        pieces = board.get_all_pieces()
+        return "_".join(
+            f"{p.piece_type.value}{p.color.value}{p.position.row}{p.position.col}"
+            for p in sorted(pieces, key=lambda x: (x.position.row, x.position.col))
         )
 
-        # Đảo dấu nếu đang là lượt đen
-        if game_state.current_player == PieceColor.BLACK:
-            evaluation = -evaluation
-
-        return evaluation
-
-    def set_depth(self, depth: int) -> None:
-        """Thiết lập độ sâu tìm kiếm"""
-        if depth >= 1:
-            self._depth = depth
-
-    def set_strategy(self, strategy: AIStrategy) -> None:
-        """Thay đổi chiến thuật AI"""
-        self._strategy = strategy
-
-    # === PRIVATE EVALUATION METHODS ===
-
-    def _evaluate_material(self, board: Board) -> float:
-        """Đánh giá giá trị quân cờ trên bàn"""
-        score = 0.0
-        for piece in board.get_all_pieces():
-            value = self._piece_values[piece.piece_type]
-            if piece.color == PieceColor.WHITE:
-                score += value
-            else:
-                score -= value
-        return score
-
-    def _evaluate_piece_positions(self, board: Board) -> float:
-        """Đánh giá vị trí các quân cờ"""
-        score = 0.0
-        for piece in board.get_all_pieces():
-            position_value = self._get_position_value(piece)
-            if piece.color == PieceColor.WHITE:
-                score += position_value
-            else:
-                score -= position_value
-        return score
-
-    def _evaluate_pawn_structure(self, board: Board) -> float:
-        """Đánh giá cấu trúc tốt"""
-        score = 0.0
-        
-        # Kiểm tra tốt cô lập
-        for color in [PieceColor.WHITE, PieceColor.BLACK]:
-            isolated_pawns = self._count_isolated_pawns(board, color)
-            doubled_pawns = self._count_doubled_pawns(board, color)
-            
-            multiplier = 1 if color == PieceColor.WHITE else -1
-            score += multiplier * (-20 * isolated_pawns - 10 * doubled_pawns)
-            
-        return score
-
-    def _evaluate_center_control(self, board: Board) -> float:
-        """Đánh giá kiểm soát trung tâm"""
-        score = 0.0
-        center_squares = [(3,3), (3,4), (4,3), (4,4)]
-        
-        for row, col in center_squares:
-            square = board.get_square(row, col)
-            if square.piece:
-                value = 10  # Giá trị cho việc chiếm giữ trung tâm
-                if square.piece.color == PieceColor.WHITE:
-                    score += value
-                else:
-                    score -= value
-        return score
-
-    def _get_position_value(self, piece: Piece) -> float:
-        """Lấy giá trị vị trí của một quân cờ"""
-        if piece.piece_type not in self._position_values:
-            return 0.0
-            
-        position_table = self._position_values[piece.piece_type]
-        row, col = piece.position.row, piece.position.col
-        
-        # Đảo bảng cho quân đen
-        if piece.color == PieceColor.BLACK:
-            row = 7 - row
-            
-        return position_table[row][col]
-
-    def _init_position_tables(self) -> Dict[PieceType, List[List[float]]]:
-        """Khởi tạo bảng giá trị vị trí cho các quân cờ"""
-        tables = {}
-        
-        # Bảng giá trị vị trí cho tốt
-        tables[PieceType.PAWN] = [
-            [0,  0,  0,  0,  0,  0,  0,  0],
-            [50, 50, 50, 50, 50, 50, 50, 50],
-            [10, 10, 20, 30, 30, 20, 10, 10],
-            [5,  5, 10, 25, 25, 10,  5,  5],
-            [0,  0,  0, 20, 20,  0,  0,  0],
-            [5, -5,-10,  0,  0,-10, -5,  5],
-            [5, 10, 10,-20,-20, 10, 10,  5],
-            [0,  0,  0,  0,  0,  0,  0,  0]
-        ]
-        
-        # Thêm các bảng giá trị cho các quân khác...
-        # (Có thể thêm bảng giá trị chi tiết cho từng loại quân)
-        
-        return tables
-
-    def _count_isolated_pawns(self, board: Board, color: PieceColor) -> int:
-        """Đếm số tốt cô lập"""
-        pawns = [p for p in board.get_pieces(color) if p.piece_type == PieceType.PAWN]
-        isolated = 0
-        
-        for pawn in pawns:
-            col = pawn.position.col
-            has_neighbors = False
-            
-            # Kiểm tra các cột bên cạnh
-            for adj_col in [col-1, col+1]:
-                if 0 <= adj_col < 8:
-                    for row in range(8):
-                        square = board.get_square(row, adj_col)
-                        if (square.piece and 
-                            square.piece.piece_type == PieceType.PAWN and
-                            square.piece.color == color):
-                            has_neighbors = True
-                            break
-            
-            if not has_neighbors:
-                isolated += 1
-                
-        return isolated
-
-    def _count_doubled_pawns(self, board: Board, color: PieceColor) -> int:
-        """Đếm số tốt chồng"""
-        doubled = 0
-        for col in range(8):
-            pawns_in_col = 0
-            for row in range(8):
-                square = board.get_square(row, col)
-                if (square.piece and 
-                    square.piece.piece_type == PieceType.PAWN and
-                    square.piece.color == color):
-                    pawns_in_col += 1
-            if pawns_in_col > 1:
-                doubled += pawns_in_col - 1
-        return doubled
+    def clear_cache(self) -> None:
+        """Xóa cache"""
+        self._position_cache.clear()
+        self._cache_hits = 0
+        self._evaluation_count = 0
+        self._total_eval_time = 0.0

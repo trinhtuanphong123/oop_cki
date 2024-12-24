@@ -1,148 +1,244 @@
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import List, Optional, Dict
-from core.pieces.piece import Piece
+from typing import List, Optional, Dict, Tuple, TYPE_CHECKING
+from datetime import datetime
+from core.pieces.piece import Piece,PieceColor
 from core.move import Move
 from core.game_rule import GameRule
 from core.game_state import GameState
 from core.board import Board
 
-class PieceColor(Enum):
-    WHITE = "white"
-    BLACK = "black"
+if TYPE_CHECKING:
+    from core.square import Square
+
+class PlayerStatus(Enum):
+    """Trạng thái của người chơi"""
+    ONLINE = "online"
+    OFFLINE = "offline"
+    IN_GAME = "in_game"
+    SPECTATING = "spectating"
+
+class PlayerStats:
+    """Class lưu trữ thống kê của người chơi"""
+    def __init__(self):
+        self.games_played: int = 0
+        self.games_won: int = 0
+        self.games_lost: int = 0
+        self.games_drawn: int = 0
+        self.rating: int = 1200  # Elo rating
+        self.win_streak: int = 0
+        self.best_win_streak: int = 0
+        self.total_pieces_captured: int = 0
+        self.total_moves_made: int = 0
+        self.average_move_time: float = 0
+        self.last_active: datetime = datetime.utcnow()
 
 class Player(ABC):
     """
-    Class cơ sở cho người chơi cờ vua
+    Class đại diện cho người chơi trong hệ thống
     Attributes:
-        _name: Tên người chơi
-        _color: Màu quân của người chơi (trắng/đen)
-        _is_human: True nếu là người thật, False nếu là AI
-        _captured_pieces: Danh sách quân đã bắt được
-        _score: Điểm số của người chơi
-        _is_in_check: Trạng thái có đang bị chiếu không
-        _moves_made: Lịch sử các nước đã đi
+        _user_id: ID người dùng trong hệ thống
+        _username: Tên đăng nhập
+        _display_name: Tên hiển thị
+        _email: Email người dùng
+        _status: Trạng thái người chơi
+        _stats: Thống kê người chơi
     """
-    def __init__(self, name: str, color: PieceColor, is_human: bool = True):
-        # Thuộc tính cơ bản
-        self._name = name
-        self._color = color
-        self._is_human = is_human
+    def __init__(self, user_id: str, username: str, display_name: str, email: str):
+        # Thông tin người dùng
+        self._user_id = user_id
+        self._username = username
+        self._display_name = display_name
+        self._email = email
         
-        # Thống kê và trạng thái
-        self._captured_pieces: List[Piece] = []
-        self._moves_made: List[Move] = []
-        self._score = 0
+        # Trạng thái game hiện tại
+        self._color: Optional[PieceColor] = None
+        self._status = PlayerStatus.ONLINE
         self._is_in_check = False
+        self._selected_piece: Optional[Piece] = None
+        self._legal_moves: List[Move] = []
+        self._last_move: Optional[Move] = None
+        self._move_start_time: Optional[datetime] = None
+        
+        # Thống kê và lịch sử
+        self._stats = PlayerStats()
+        self._current_game_moves: List[Move] = []
+        self._captured_pieces: List[Piece] = []
+        self._current_game_score = 0
 
-        # Giá trị điểm của từng loại quân
-        self._piece_values = {
-            'PAWN': 1,
-            'KNIGHT': 3,
-            'BISHOP': 3,
-            'ROOK': 5,
-            'QUEEN': 9,
-            'KING': 0
+        # Cài đặt người chơi
+        self._preferences = {
+            'show_legal_moves': True,
+            'auto_queen_promotion': True,
+            'move_confirmation': False,
+            'sound_enabled': True,
+            'animation_speed': 1.0
         }
 
     # === PROPERTIES ===
     @property
-    def name(self) -> str:
-        return self._name
+    def user_id(self) -> str:
+        return self._user_id
 
     @property
-    def color(self) -> PieceColor:
-        return self._color
+    def username(self) -> str:
+        return self._username
 
     @property
-    def is_human(self) -> bool:
-        return self._is_human
+    def display_name(self) -> str:
+        return self._display_name
 
     @property
-    def score(self) -> int:
-        return self._score
+    def status(self) -> PlayerStatus:
+        return self._status
 
     @property
-    def is_in_check(self) -> bool:
-        return self._is_in_check
+    def stats(self) -> PlayerStats:
+        return self._stats
 
     @property
-    def captured_pieces(self) -> List[Piece]:
-        return self._captured_pieces.copy()
+    def selected_piece(self) -> Optional[Piece]:
+        return self._selected_piece
 
-    @property
-    def moves_made(self) -> List[Move]:
-        return self._moves_made.copy()
-
-    # === ABSTRACT METHODS ===
-    @abstractmethod
-    def get_move(self, game_state: GameState) -> Optional[Move]:
+    # === GAME INTERACTION METHODS ===
+    def handle_square_click(self, square: 'Square', game_state: GameState) -> Optional[Move]:
         """
-        Lấy nước đi từ người chơi
+        Xử lý khi người chơi click vào một ô
         Args:
-            game_state: Trạng thái hiện tại của game
+            square: Ô được click
+            game_state: Trạng thái game hiện tại
         Returns:
-            Nước đi được chọn hoặc None nếu không có nước đi hợp lệ
+            Move nếu là nước đi hợp lệ, None nếu không
         """
-        pass
+        if not self._is_my_turn(game_state):
+            return None
 
-    # === PUBLIC METHODS ===
-    def add_move(self, move: Move) -> None:
-        """Thêm nước đi vào lịch sử"""
-        self._moves_made.append(move)
-        self.handle_move_result(move)
+        # Nếu đã chọn quân cờ trước đó
+        if self._selected_piece:
+            # Thử thực hiện nước đi
+            move = self._try_make_move(square, game_state)
+            if move:
+                self._handle_successful_move(move)
+                return move
+            # Nếu click vào quân của mình, chọn quân mới
+            elif square.piece and square.piece.color == self._color:
+                self._select_piece(square.piece, game_state)
+            # Click vào ô không hợp lệ, bỏ chọn
+            else:
+                self._deselect_piece()
+        # Chọn quân mới
+        elif square.piece and square.piece.color == self._color:
+            self._select_piece(square.piece, game_state)
 
-    def handle_move_result(self, move: Move) -> None:
-        """Xử lý kết quả sau một nước đi"""
-        if move.is_capture:
-            self.add_captured_piece(move.captured_piece)
+        return None
 
-    def add_captured_piece(self, piece: Piece) -> None:
-        """Thêm quân cờ bị bắt và cập nhật điểm"""
-        if piece:
-            self._captured_pieces.append(piece)
-            self._update_score(piece)
+    def _select_piece(self, piece: Piece, game_state: GameState) -> None:
+        """Chọn một quân cờ và tính các nước đi có thể"""
+        self._selected_piece = piece
+        self._legal_moves = game_state.get_legal_moves(piece)
+        self._move_start_time = datetime.utcnow()
 
-    def get_pieces(self, board: Board) -> List[Piece]:
-        """Lấy danh sách quân cờ của người chơi"""
-        return board.get_pieces(self._color)
+    def _deselect_piece(self) -> None:
+        """Bỏ chọn quân cờ hiện tại"""
+        self._selected_piece = None
+        self._legal_moves.clear()
+        self._move_start_time = None
 
-    def can_move(self, game_state: GameState) -> bool:
-        """Kiểm tra còn nước đi hợp lệ không"""
-        for piece in self.get_pieces(game_state.board):
-            if game_state.get_legal_moves(piece):
-                return True
-        return False
+    def _try_make_move(self, target_square: 'Square', game_state: GameState) -> Optional[Move]:
+        """Thử thực hiện nước đi đến ô đích"""
+        for move in self._legal_moves:
+            if move.end_square == target_square:
+                if move.needs_promotion():
+                    move = self._handle_promotion(move)
+                return move
+        return None
 
-    def get_captured_pieces_count(self) -> Dict[str, int]:
-        """Đếm số lượng từng loại quân đã bắt"""
-        counts = {}
-        for piece in self._captured_pieces:
-            piece_type = piece.piece_type
-            counts[piece_type] = counts.get(piece_type, 0) + 1
-        return counts
+    def _handle_successful_move(self, move: Move) -> None:
+        """Xử lý sau khi thực hiện nước đi thành công"""
+        self._last_move = move
+        self._current_game_moves.append(move)
+        self._update_move_statistics(move)
+        self._deselect_piece()
 
-    def set_in_check(self, value: bool) -> None:
-        """Cập nhật trạng thái bị chiếu"""
-        self._is_in_check = value
+    def _handle_promotion(self, move: Move) -> Move:
+        """Xử lý phong cấp tốt"""
+        from core.pieces.queen import Queen  # Import local để tránh circular
+        if self._preferences['auto_queen_promotion']:
+            move.promotion_piece = Queen
+        else:
+            # TODO: Hiện dialog cho người chơi chọn quân phong cấp
+            move.promotion_piece = Queen
+        return move
 
-    def reset(self) -> None:
-        """Reset trạng thái người chơi"""
+    # === GAME STATE METHODS ===
+    def start_game(self, color: PieceColor) -> None:
+        """Bắt đầu game mới"""
+        self._color = color
+        self._status = PlayerStatus.IN_GAME
+        self._current_game_moves.clear()
         self._captured_pieces.clear()
-        self._moves_made.clear()
-        self._score = 0
+        self._current_game_score = 0
         self._is_in_check = False
+        self._stats.games_played += 1
+        self._stats.last_active = datetime.utcnow()
 
-    # === PRIVATE METHODS ===
-    def _update_score(self, captured_piece: Piece) -> None:
-        """Cập nhật điểm dựa trên quân cờ bắt được"""
-        piece_type = captured_piece.piece_type.upper()
-        self._score += self._piece_values.get(piece_type, 0)
+    def end_game(self, result: str) -> None:
+        """Kết thúc game và cập nhật thống kê"""
+        if result == "win":
+            self._stats.games_won += 1
+            self._stats.win_streak += 1
+            self._stats.best_win_streak = max(
+                self._stats.win_streak,
+                self._stats.best_win_streak
+            )
+        elif result == "loss":
+            self._stats.games_lost += 1
+            self._stats.win_streak = 0
+        else:  # draw
+            self._stats.games_drawn += 1
 
-    # === MAGIC METHODS ===
+        self._status = PlayerStatus.ONLINE
+        self._color = None
+
+    # === HELPER METHODS ===
+    def _is_my_turn(self, game_state: GameState) -> bool:
+        """Kiểm tra có phải lượt của người chơi không"""
+        return game_state.current_player == self._color
+
+    def _update_move_statistics(self, move: Move) -> None:
+        """Cập nhật thống kê sau mỗi nước đi"""
+        if self._move_start_time:
+            move_time = (datetime.utcnow() - self._move_start_time).total_seconds()
+            total_time = self._stats.average_move_time * self._stats.total_moves_made
+            self._stats.total_moves_made += 1
+            self._stats.average_move_time = (total_time + move_time) / self._stats.total_moves_made
+
+        if move.is_capture:
+            self._stats.total_pieces_captured += 1
+            self._captured_pieces.append(move.captured_piece)
+            self._current_game_score += self._get_piece_value(move.captured_piece)
+
+    def _get_piece_value(self, piece: Piece) -> int:
+        """Lấy giá trị của quân cờ"""
+        values = {'PAWN': 1, 'KNIGHT': 3, 'BISHOP': 3,
+                 'ROOK': 5, 'QUEEN': 9, 'KING': 0}
+        return values.get(piece.piece_type.upper(), 0)
+
+    # === PREFERENCES METHODS ===
+    def set_preference(self, key: str, value: any) -> None:
+        """Cập nhật cài đặt người chơi"""
+        if key in self._preferences:
+            self._preferences[key] = value
+
+    def get_preference(self, key: str) -> any:
+        """Lấy giá trị cài đặt"""
+        return self._preferences.get(key)
+
+    # === REPRESENTATION ===
     def __str__(self) -> str:
-        player_type = "Human" if self._is_human else "AI"
-        return f"{self._name} - {player_type} ({self._color.value}), Score: {self._score}"
+        return f"{self._display_name} ({self._status.value})"
 
     def __repr__(self) -> str:
-        return f"Player(name='{self._name}', color={self._color}, is_human={self._is_human})"
+        return (f"Player(user_id='{self._user_id}', "
+                f"username='{self._username}', "
+                f"status={self._status})")
