@@ -149,3 +149,29 @@ class Pawn(Piece):
     def __str__(self) -> str:
         """String representation"""
         return f"{self.color.value} Pawn"
+    
+    def _get_capture_moves(self, board: 'Board') -> List[Move]:
+        """Lấy các nước bắt chéo"""
+        moves = []
+        row = self.position.row
+        col = self.position.col
+        
+        # Kiểm tra 2 ô chéo phía trước
+        for col_offset in [-1, 1]:
+            new_col = col + col_offset
+            new_row = row + self.direction
+            
+            if 0 <= new_row < 8 and 0 <= new_col < 8:
+                target = board.get_square(new_row, new_col)
+                if target.has_enemy_piece(self.color):
+                    move = self._create_move(target)
+                    # Kiểm tra phong cấp
+                    if new_row == self._promotion_row:
+                        move._move_type.is_promotion = True
+                    moves.append(move)
+                    
+        return moves
+
+    def can_be_promoted(self) -> bool:
+        """Kiểm tra tốt có thể phong cấp không"""
+        return self.position.row == self._promotion_row

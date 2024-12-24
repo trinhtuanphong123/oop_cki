@@ -186,3 +186,38 @@ class Knight(Piece):
         return (f"Knight(color={self.color.value}, "
                 f"position={self.position}, "
                 f"has_moved={self.has_moved})")
+    
+    def calculate_value(self) -> int:
+        """Tính giá trị của quân mã dựa trên vị trí"""
+        base_value = 3  # Giá trị cơ bản của mã
+        
+        # Bonus cho vị trí trung tâm
+        center_bonus = 0
+        row, col = self.position.row, self.position.col
+        if 2 <= row <= 5 and 2 <= col <= 5:
+            center_bonus = 0.5
+            
+        # Bonus cho outpost (mã được bảo vệ bởi tốt)
+        outpost_bonus = 0
+        if self._is_outpost():
+            outpost_bonus = 0.3
+            
+        return base_value + center_bonus + outpost_bonus
+
+    def _is_outpost(self) -> bool:
+        """Kiểm tra mã có phải là outpost không"""
+        if not self._board:
+            return False
+            
+        # Kiểm tra có tốt bảo vệ không
+        row, col = self.position.row, self.position.col
+        pawn_row = row + (1 if self.color == PieceColor.WHITE else -1)
+        
+        for pawn_col in [col-1, col+1]:
+            if 0 <= pawn_col < 8 and 0 <= pawn_row < 8:
+                square = self._board.get_square(pawn_row, pawn_col)
+                if (square.piece and 
+                    square.piece.piece_type == PieceType.PAWN and 
+                    square.piece.color == self.color):
+                    return True
+        return False

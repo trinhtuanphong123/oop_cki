@@ -3,25 +3,22 @@ from typing import Optional, List, Dict, Tuple, Type
 from dataclasses import dataclass
 from enum import Enum
 import time
+import logging
 
 from ..core.move import Move
 from ..core.game_state import GameState
-from ..core.game_rule import GameRule
 from ..core.pieces.piece import Piece, PieceColor, PieceType
 from ..core.board import Board
-from .strategies.strategies import AIStrategy
-from .evaluation.position_tables import PositionTables
-from .evaluation.evaluator import PositionEvaluator
+
+logger = logging.getLogger(__name__)
 
 class AIEvaluationType(Enum):
-    """Các loại đánh giá vị trí"""
-    BASIC = "basic"           # Chỉ đánh giá quân
-    STANDARD = "standard"     # Đánh giá quân + vị trí
-    ADVANCED = "advanced"     # Đánh giá đầy đủ các yếu tố
+    BASIC = "basic"           
+    STANDARD = "standard"     
+    ADVANCED = "advanced"     
 
 @dataclass
 class EvaluationConfig:
-    """Cấu hình cho việc đánh giá vị trí"""
     material_weight: float = 1.0
     position_weight: float = 0.3
     pawn_structure_weight: float = 0.2
@@ -31,146 +28,163 @@ class EvaluationConfig:
     development_weight: float = 0.1
 
 class ChessAI:
-    """
-    Class quản lý AI cờ vua.
-    Cung cấp interface cho các chiến thuật và đánh giá vị trí.
-    """
-    def __init__(self, 
-                 strategy: AIStrategy,
-                 evaluation_type: AIEvaluationType = AIEvaluationType.STANDARD):
-        """
-        Khởi tạo Chess AI
-        Args:
-            strategy: Chiến thuật AI sử dụng
-            evaluation_type: Loại đánh giá vị trí
-        """
-        self._strategy = strategy
+    def __init__(self, evaluation_type: AIEvaluationType = AIEvaluationType.STANDARD):
         self._evaluation_type = evaluation_type
-        self._evaluator = PositionEvaluator()
-        self._position_tables = PositionTables()
-        
-        # Cấu hình
         self._config = EvaluationConfig()
         self._depth = 3
-        
-        # Cache và thống kê
         self._position_cache: Dict[str, float] = {}
         self._evaluation_count = 0
         self._cache_hits = 0
         self._total_eval_time = 0.0
 
-    @property
-    def stats(self) -> Dict:
-        """Thống kê về hoạt động của AI"""
-        return {
-            "evaluations": self._evaluation_count,
-            "cache_hits": self._cache_hits,
-            "cache_hit_rate": (self._cache_hits / self._evaluation_count 
-                             if self._evaluation_count > 0 else 0),
-            "average_eval_time": (self._total_eval_time / self._evaluation_count 
-                                if self._evaluation_count > 0 else 0)
-        }
-
-    def get_best_move(self, 
-                      game_state: GameState, 
-                      thinking_time: float) -> Optional[Move]:
-        """
-        Tìm nước đi tốt nhất
-        Args:
-            game_state: Trạng thái game hiện tại
-            thinking_time: Thời gian suy nghĩ (giây)
-        Returns:
-            Nước đi tốt nhất hoặc None
-        """
+    def get_best_move(self, game_state: GameState, thinking_time: float) -> Optional[Move]:
+        """Tìm nước đi tốt nhất trong thời gian cho phép"""
         start_time = time.time()
-        
-        # Kiểm tra cache
-        position_key = self._get_position_key(game_state)
-        if position_key in self._position_cache:
-            self._cache_hits += 1
-        
-        # Tìm nước đi tốt nhất
-        best_move = self._strategy.find_best_move(
-            game_state,
-            thinking_time,
-            self._depth,
-            self.evaluate_position
-        )
-        
-        # Cập nhật thống kê
+        best_move = None
+        best_score = float('-inf')
+
+        try:
+            legal_moves = game_state.get_legal_moves_for_current_player()
+            if not legal_moves:
+                return None
+
+            # Iterative deepening
+            current_depth = 1
+            while time.time() - start_time < thinking_time:
+                current_score, current_move = self._minimax(
+                    game_state,
+                    current_depth,
+                    float('-inf'),
+                    float('inf'),
+                    True
+                )
+
+                if current_score > best_score:
+                    best_score = current_score
+                    best_move = current_move
+
+                current_depth += 1
+
+        except TimeoutError:
+            logger.info(f"AI search stopped at depth {current_depth}")
+        except Exception as e:
+            logger.error(f"Error in get_best_move: {e}")
+
         self._total_eval_time += time.time() - start_time
-        
         return best_move
 
-    def evaluate_position(self, game_state: GameState) -> float:
-        """
-        Đánh giá vị trí hiện tại
-        Args:
-            game_state: Trạng thái cần đánh giá
-        Returns:
-            Điểm số đánh giá
-        """
-        self._evaluation_count += 1
-        start_time = time.time()
+    def _minimax(self, game_state: GameState, depth: int, alpha: float, beta: float, 
+                 is_maximizing: bool) -> Tuple[float, Optional[Move]]:
+        """Minimax algorithm với alpha-beta pruning"""
+        if depth == 0 or game_state.is_game_over():
+            return self.evaluate_position(game_state), None
 
-        # Kiểm tra cache
+        legal_moves = game_state.get_legal_moves_for_current_player()
+        if not legal_moves:
+            return float('-inf') if is_maximizing else float('inf'), None
+
+        best_move = None
+        if is_maximizing:
+            max_eval = float('-inf')
+            for move in legal_moves:
+                game_state.make_move(move.start_square, move.end_square)
+                eval_score, _ = self._minimax(game_state, depth - 1, alpha, beta, False)
+                game_state.undo_last_move()
+
+                if eval_score > max_eval:
+                    max_eval = eval_score
+                    best_move = move
+                alpha = max(alpha, eval_score)
+                if beta <= alpha:
+                    break
+            return max_eval, best_move
+        else:
+            min_eval = float('inf')
+            for move in legal_moves:
+                game_state.make_move(move.start_square, move.end_square)
+                eval_score, _ = self._minimax(game_state, depth - 1, alpha, beta, True)
+                game_state.undo_last_move()
+
+                if eval_score < min_eval:
+                    min_eval = eval_score
+                    best_move = move
+                beta = min(beta, eval_score)
+                if beta <= alpha:
+                    break
+            return min_eval, best_move
+
+    def evaluate_position(self, game_state: GameState) -> float:
+        """Đánh giá vị trí hiện tại"""
+        self._evaluation_count += 1
         position_key = self._get_position_key(game_state)
+        
+        # Check cache
         if position_key in self._position_cache:
             self._cache_hits += 1
             return self._position_cache[position_key]
 
-        # Tính điểm đánh giá
         score = 0.0
-        
-        # Material evaluation
-        material_score = self._evaluator.evaluate_material(
-            game_state.board,
-            self._position_tables.piece_values
-        )
-        score += material_score * self._config.material_weight
+        board = game_state.board
+
+        # Material evaluation (always included)
+        score += self._evaluate_material(board) * self._config.material_weight
 
         # Position evaluation
         if self._evaluation_type != AIEvaluationType.BASIC:
-            position_score = self._evaluator.evaluate_positions(
-                game_state.board,
-                self._position_tables.position_tables
-            )
-            score += position_score * self._config.position_weight
+            score += self._evaluate_position_control(board) * self._config.position_weight
 
-        # Advanced evaluation
+        # Advanced evaluations
         if self._evaluation_type == AIEvaluationType.ADVANCED:
-            # Pawn structure
-            pawn_score = self._evaluator.evaluate_pawn_structure(game_state.board)
-            score += pawn_score * self._config.pawn_structure_weight
+            score += self._evaluate_pawn_structure(board) * self._config.pawn_structure_weight
+            score += self._evaluate_king_safety(board) * self._config.king_safety_weight
+            score += self._evaluate_mobility(game_state) * self._config.mobility_weight
 
-            # Center control
-            center_score = self._evaluator.evaluate_center_control(game_state.board)
-            score += center_score * self._config.center_control_weight
-
-            # King safety
-            king_safety_score = self._evaluator.evaluate_king_safety(game_state.board)
-            score += king_safety_score * self._config.king_safety_weight
-
-            # Mobility
-            mobility_score = self._evaluator.evaluate_mobility(game_state)
-            score += mobility_score * self._config.mobility_weight
-
-        # Cache kết quả
         self._position_cache[position_key] = score
-        self._total_eval_time += time.time() - start_time
-
         return score
 
-    def set_evaluation_weights(self, weights: Dict[str, float]) -> None:
-        """Cập nhật trọng số đánh giá"""
-        for key, value in weights.items():
-            if hasattr(self._config, f"{key}_weight"):
-                setattr(self._config, f"{key}_weight", value)
+    def _evaluate_material(self, board: Board) -> float:
+        """Đánh giá giá trị vật chất"""
+        piece_values = {
+            PieceType.PAWN: 1,
+            PieceType.KNIGHT: 3,
+            PieceType.BISHOP: 3,
+            PieceType.ROOK: 5,
+            PieceType.QUEEN: 9,
+            PieceType.KING: 0  # King's value not counted in material
+        }
+        
+        score = 0
+        for piece in board.get_all_pieces():
+            value = piece_values[piece.piece_type]
+            if piece.color == PieceColor.WHITE:
+                score += value
+            else:
+                score -= value
+        return score
 
-    def set_evaluation_type(self, eval_type: AIEvaluationType) -> None:
-        """Thay đổi loại đánh giá"""
-        self._evaluation_type = eval_type
-        self._position_cache.clear()
+    def _evaluate_position_control(self, board: Board) -> float:
+        """Đánh giá kiểm soát vị trí"""
+        score = 0
+        for piece in board.get_all_pieces():
+            if piece.color == PieceColor.WHITE:
+                score += len(piece.get_possible_moves(board)) * 0.1
+            else:
+                score -= len(piece.get_possible_moves(board)) * 0.1
+        return score
+
+    def _evaluate_king_safety(self, board: Board) -> float:
+        """Đánh giá an toàn của vua"""
+        score = 0
+        for piece in board.get_all_pieces():
+            if piece.piece_type == PieceType.KING:
+                # Đánh giá dựa trên số quân bảo vệ xung quanh vua
+                protectors = len([p for p in board.get_pieces_around(piece.position) 
+                                if p and p.color == piece.color])
+                if piece.color == PieceColor.WHITE:
+                    score += protectors * 0.2
+                else:
+                    score -= protectors * 0.2
+        return score
 
     def _get_position_key(self, game_state: GameState) -> str:
         """Tạo key duy nhất cho vị trí"""
