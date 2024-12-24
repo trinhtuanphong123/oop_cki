@@ -2,10 +2,11 @@
 
 from typing import Optional, List, Dict, Tuple
 from ..core.move import Move
-from ..core.game_rule import GameState
+from ..core.game_state import GameState
+from ..core.game_rule import GameRule
 from ..core.pieces.piece import Piece, PieceColor, PieceType
 from ..core.board import Board
-from .strategies import AIStrategy
+from .strategies.strategies import AIStrategy
 
 class ChessAI:
     """

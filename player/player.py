@@ -3,7 +3,8 @@ from enum import Enum
 from typing import List, Optional, Dict
 from core.pieces.piece import Piece
 from core.move import Move
-from core.game_rule import GameState
+from core.game_rule import GameRule
+from core.game_state import GameState
 from core.board import Board
 
 class PieceColor(Enum):

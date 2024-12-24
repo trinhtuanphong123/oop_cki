@@ -4,7 +4,7 @@ import random
 from typing import Optional, List
 from strategies import AIStrategy
 from ...core.move import Move
-from ...core.game_rule import GameState
+from ...core.game_state import GameState
 from ...core.pieces.piece import Piece, PieceColor
 
 class RandomStrategy(AIStrategy):
@@ -62,21 +62,14 @@ class RandomStrategy(AIStrategy):
         return self._evaluate_material(game_state)
 
     def _get_all_legal_moves(self, game_state: GameState) -> List[Move]:
-        """
-        Lấy tất cả các nước đi hợp lệ cho người chơi hiện tại
-        Args:
-            game_state: Trạng thái game hiện tại
-        Returns:
-            Danh sách các nước đi hợp lệ
-        """
         legal_moves = []
         current_player = game_state.current_player
         
         for piece in game_state.board.get_pieces(current_player):
             moves = game_state.get_legal_moves(piece)
             legal_moves.extend(moves)
-            
-        return legal_moves
+        
+        return legal_moves  # Hoàn thiện phương thức
 
     def _get_move_weight(self, move: Move, game_state: GameState) -> float:
         """

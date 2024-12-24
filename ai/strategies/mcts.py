@@ -6,7 +6,8 @@ import random
 from typing import Optional, List, Dict
 from strategies import AIStrategy
 from ...core.move import Move
-from ...core.game_rule import GameState
+from ...core.game_rule import GameRule
+from ...core.game_state import GameState
 from ...core.pieces.piece import PieceColor
 
 class MCTSNode:

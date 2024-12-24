@@ -1,204 +1,217 @@
-# board.py
+# core/board.py
 
-from typing import List, Optional, Dict, Tuple
-from core.pieces.piece import Piece, PieceColor, PieceType 
-from .square import Square
-from .move import Move
-from .pieces.king import King
-from .pieces.pawn import Pawn
+from typing import List, Dict, Optional, Tuple, TYPE_CHECKING
+from .pieces.piece import Piece, PieceColor, PieceType
+
+if TYPE_CHECKING:
+    from .square import Square
+    from .move import Move, MoveType
+    from .pieces.king import King
 
 class Board:
     """
-    Class đại diện cho bàn cờ.
-    Quản lý:
-    - Các ô trên bàn cờ
-    - Vị trí các quân cờ
-    - Xử lý các nước đi
-    - Lưu trữ lịch sử
+    Class đại diện cho bàn cờ và quản lý trạng thái game.
+    - Quản lý vị trí các quân cờ
+    - Xử lý các nước đi đặc biệt
+    - Lưu trữ lịch sử nước đi
     """
 
     def __init__(self):
-        """Khởi tạo bàn cờ mới"""
-        # Khởi tạo ma trận ô cờ
-        self._squares: List[List[Square]] = [
+        """Khởi tạo bàn cờ trống"""
+        self._initialize_board()
+        self._move_history: List['Move'] = []
+        self._captured_pieces: List[Piece] = []
+
+    def _initialize_board(self) -> None:
+        """Khởi tạo bàn cờ và danh sách quân"""
+        from .square import Square
+        
+        # Khởi tạo bàn cờ
+        self._squares: List[List['Square']] = [
             [Square(row, col) for col in range(8)]
             for row in range(8)
         ]
 
-        # Quản lý quân cờ theo màu
+        # Khởi tạo danh sách quân
         self._pieces: Dict[PieceColor, List[Piece]] = {
             PieceColor.WHITE: [],
             PieceColor.BLACK: []
         }
 
-        # Lịch sử và trạng thái
-        self._move_history: List[Move] = []
-        self._captured_pieces: List[Piece] = []
+    def is_valid_position(self, row: int, col: int) -> bool:
+        """Kiểm tra vị trí có nằm trong bàn cờ"""
+        return 0 <= row < 8 and 0 <= col < 8
 
-    # Phương thức truy cập
-    def get_square(self, row: int, col: int) -> Square:
-        """Lấy ô tại vị trí chỉ định"""
-        if not self._is_valid_position(row, col):
+    def get_square(self, row: int, col: int) -> 'Square':
+        """Lấy ô tại vị trí cụ thể"""
+        if not self.is_valid_position(row, col):
             raise ValueError(f"Invalid position: ({row}, {col})")
         return self._squares[row][col]
+
+    def get_piece_at(self, row: int, col: int) -> Optional[Piece]:
+        """Lấy quân cờ tại vị trí"""
+        return self.get_square(row, col).piece
 
     def get_pieces(self, color: PieceColor) -> List[Piece]:
         """Lấy danh sách quân cờ theo màu"""
         return self._pieces[color].copy()
 
-    def get_king(self, color: PieceColor) -> Optional[King]:
-        """Lấy vua của một bên"""
-        for piece in self._pieces[color]:
-            if isinstance(piece, King):
-                return piece
-        return None
-
-    # Phương thức thao tác với quân cờ
-    def add_piece(self, piece: Piece, square: Square) -> None:
-        """
-        Thêm quân cờ vào bàn cờ
-        Args:
-            piece: Quân cờ cần thêm
-            square: Ô cần đặt quân
-        """
-        if square.is_occupied():
-            raise ValueError(f"Square {square} is already occupied")
-
-        # Cập nhật vị trí
+    def place_piece(self, piece: Piece, square: 'Square') -> None:
+        """Đặt quân cờ lên ô"""
+        if square.piece:
+            self.remove_piece(square.piece)
+        
         square.piece = piece
         piece.position = square
         
-        # Thêm vào danh sách
-        self._pieces[piece.color].append(piece)
+        if piece not in self._pieces[piece.color]:
+            self._pieces[piece.color].append(piece)
 
     def remove_piece(self, piece: Piece) -> None:
-        """
-        Xóa quân cờ khỏi bàn cờ
-        Args:
-            piece: Quân cờ cần xóa
-        """
+        """Lấy quân cờ ra khỏi bàn cờ"""
         if piece in self._pieces[piece.color]:
             self._pieces[piece.color].remove(piece)
+        if piece.position:
             piece.position.piece = None
 
-    # Phương thức xử lý nước đi
-    def make_move(self, move: Move) -> bool:
+    def execute_move(self, move: 'Move') -> bool:
         """
-        Thực hiện nước đi
+        Thực hiện một nước đi
         Args:
             move: Nước đi cần thực hiện
         Returns:
-            True nếu thực hiện thành công
+            bool: True nếu thực hiện thành công
         """
-        if not self._validate_move(move):
-            return False
+        # Xử lý quân bị bắt
+        if move.move_type.is_capture:
+            captured_piece = move.captured_piece
+            if captured_piece:
+                self.remove_piece(captured_piece)
+                self._captured_pieces.append(captured_piece)
 
-        # Xử lý bắt quân
-        if move.is_capture:
-            captured = move.end_square.piece
-            self.remove_piece(captured)
-            self._captured_pieces.append(captured)
-
-        # Di chuyển quân
-        piece = move.start_square.piece
+        # Di chuyển quân cờ
+        piece = move.moving_piece
         self.remove_piece(piece)
-        self.add_piece(piece, move.end_square)
+        self.place_piece(piece, move.end_square)
 
         # Xử lý các trường hợp đặc biệt
-        if move.is_castle:
+        if move.move_type.is_castle:
             self._handle_castling(move)
-        elif move.is_en_passant:
+        elif move.move_type.is_en_passant:
             self._handle_en_passant(move)
-        elif move.is_promotion:
+        elif move.move_type.is_promotion:
             self._handle_promotion(move)
 
         # Lưu lịch sử
         self._move_history.append(move)
         return True
 
-    def undo_move(self) -> Optional[Move]:
+    def undo_last_move(self) -> Optional['Move']:
         """
         Hoàn tác nước đi cuối cùng
         Returns:
-            Nước đi đã hoàn tác hoặc None
+            Move hoặc None nếu không có nước đi nào
         """
         if not self._move_history:
             return None
 
-        last_move = self._move_history.pop()
-        piece = last_move.end_square.piece
+        move = self._move_history.pop()
+        piece = move.moving_piece
 
-        # Hoàn tác di chuyển
+        # Hoàn tác di chuyển chính
         self.remove_piece(piece)
-        self.add_piece(piece, last_move.start_square)
+        self.place_piece(piece, move.start_square)
 
         # Hoàn tác bắt quân
-        if last_move.is_capture:
-            captured = self._captured_pieces.pop()
-            self.add_piece(captured, last_move.end_square)
+        if move.move_type.is_capture and self._captured_pieces:
+            captured_piece = self._captured_pieces.pop()
+            if move.move_type.is_en_passant:
+                # Với bắt tốt qua đường, đặt lại tốt bị bắt
+                capture_square = self.get_square(
+                    move.start_square.row,
+                    move.end_square.col
+                )
+                self.place_piece(captured_piece, capture_square)
+            else:
+                self.place_piece(captured_piece, move.end_square)
 
-        # Hoàn tác trường hợp đặc biệt
-        if last_move.is_castle:
-            self._undo_castling(last_move)
-        elif last_move.is_en_passant:
-            self._undo_en_passant(last_move)
+        # Hoàn tác nhập thành
+        if move.move_type.is_castle:
+            self._undo_castling(move)
 
-        return last_move
+        return move
 
-    # Phương thức hỗ trợ
-    def _validate_move(self, move: Move) -> bool:
-        """Kiểm tra nước đi có hợp lệ"""
-        if not move.start_square.is_occupied():
-            return False
-        
-        piece = move.start_square.piece
-        if not piece.can_move_to(move.end_square, self):
-            return False
-
-        return True
-
-    def _is_valid_position(self, row: int, col: int) -> bool:
-        """Kiểm tra vị trí có hợp lệ"""
-        return 0 <= row < 8 and 0 <= col < 8
-
-    def _handle_castling(self, move: Move) -> None:
-        """Xử lý nhập thành"""
+    def _handle_castling(self, move: 'Move') -> None:
+        """
+        Xử lý nhập thành
+        - Nhập thành ngắn: Vua đi sang phải 2 ô, xe đi sang trái 2 ô
+        - Nhập thành dài: Vua đi sang trái 2 ô, xe đi sang phải 3 ô
+        """
         row = move.start_square.row
-        old_rook_col = 7 if move.end_square.col > move.start_square.col else 0
-        new_rook_col = 5 if move.end_square.col > move.start_square.col else 3
-
-        # Di chuyển xe
-        rook = self.get_square(row, old_rook_col).piece
-        self.remove_piece(rook)
-        self.add_piece(rook, self.get_square(row, new_rook_col))
-
-    def _handle_en_passant(self, move: Move) -> None:
-        """Xử lý bắt tốt qua đường"""
-        captured_row = move.start_square.row
-        captured_col = move.end_square.col
-        captured = self.get_square(captured_row, captured_col).piece
+        is_kingside = move.end_square.col > move.start_square.col
         
-        self.remove_piece(captured)
-        self._captured_pieces.append(captured)
+        # Xác định vị trí cũ và mới của xe
+        old_rook_col = 7 if is_kingside else 0
+        new_rook_col = 5 if is_kingside else 3
+        
+        # Di chuyển xe
+        rook = self.get_piece_at(row, old_rook_col)
+        if rook:
+            self.remove_piece(rook)
+            self.place_piece(rook, self.get_square(row, new_rook_col))
 
-    def _handle_promotion(self, move: Move) -> None:
-        """Xử lý phong cấp"""
-        if move.promotion_piece_type:
-            # Tạo quân mới và thay thế
-            new_piece = move.promotion_piece_type(
-                move.moving_piece.color,
-                move.end_square
-            )
+    def _handle_en_passant(self, move: 'Move') -> None:
+        """
+        Xử lý bắt tốt qua đường
+        - Tốt bị bắt nằm cùng hàng với tốt bắt
+        - Tốt bắt di chuyển chéo sang ô trống
+        """
+        captured_square = self.get_square(
+            move.start_square.row,
+            move.end_square.col
+        )
+        captured_pawn = captured_square.piece
+        if captured_pawn:
+            self.remove_piece(captured_pawn)
+            self._captured_pieces.append(captured_pawn)
+
+    def _handle_promotion(self, move: 'Move') -> None:
+        """
+        Xử lý phong cấp
+        - Tạo quân mới theo loại được chọn
+        - Thay thế tốt bằng quân mới
+        """
+        if not move.move_type.promotion_piece_type:
+            return
+
+        # Import các class quân cờ cần thiết
+        from .pieces.queen import Queen
+        from .pieces.rook import Rook
+        from .pieces.bishop import Bishop
+        from .pieces.knight import Knight
+
+        # Dictionary ánh xạ loại quân với class
+        piece_classes = {
+            PieceType.QUEEN: Queen,
+            PieceType.ROOK: Rook,
+            PieceType.BISHOP: Bishop,
+            PieceType.KNIGHT: Knight
+        }
+
+        piece_class = piece_classes.get(move.move_type.promotion_piece_type)
+        if piece_class:
+            new_piece = piece_class(move.moving_piece.color, move.end_square)
             self.remove_piece(move.moving_piece)
-            self.add_piece(new_piece, move.end_square)
+            self.place_piece(new_piece, move.end_square)
 
     def __str__(self) -> str:
         """Hiển thị bàn cờ dạng text"""
-        board_str = ""
+        board_str = "  a b c d e f g h\n"
         for row in range(8):
+            board_str += f"{8-row} "
             for col in range(8):
-                square = self._squares[row][col]
-                piece = square.piece
-                board_str += f"{piece if piece else '.'} "
-            board_str += "\n"
+                piece = self.get_piece_at(row, col)
+                board_str += f"{piece.symbol if piece else '.'} "
+            board_str += f"{8-row}\n"
+        board_str += "  a b c d e f g h"
         return board_str

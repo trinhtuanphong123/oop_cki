@@ -3,7 +3,8 @@
 from typing import Optional, List, Tuple
 from enum import Enum
 from .core.board import Board
-from .core.game_rule import GameState
+from .core.game_rule import GameRule
+from .core.game_state import GameState
 from .core.move import Move
 from .core.game_rule import GameRule
 from .core.pieces.piece import Piece, PieceColor
@@ -45,7 +46,7 @@ class GameManager:
     def __init__(self):
         """Khởi tạo game manager"""
         self._game_state = GameState()
-        self._mode = GameMode.PLAYER_VS_PLAYER
+        self._mode = GameMode.PLAYER_VS_AI
         self._players: List[Player] = []
         self._move_history: List[Move] = []
         self._status = GameStatus.ACTIVE
@@ -189,8 +190,7 @@ class GameManager:
     def get_square_highlights(self) -> List[Tuple[int, int]]:
         """
         Lấy danh sách các ô cần highlight
-        Returns:
-            List các tọa độ (row, col) cần highlight
+        
         """
         highlights = []
         
@@ -208,8 +208,6 @@ class GameManager:
     def handle_promotion(self, piece_type: str) -> None:
         """
         Xử lý việc phong cấp tốt
-        Args:
-            piece_type: Loại quân muốn phong cấp
         """
         if self._game_state.pending_promotion:
             self._game_state.complete_promotion(piece_type)
@@ -218,8 +216,7 @@ class GameManager:
     def get_ai_move(self) -> Optional[Move]:
         """
         Lấy nước đi từ AI
-        Returns:
-            Nước đi được AI chọn
+        
         """
         if isinstance(self.current_player, AIPlayer):
             thinking_time = self._ai_thinking_time[self._ai_difficulty]

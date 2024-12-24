@@ -1,7 +1,8 @@
 from typing import Optional
 from .player import Player, PieceColor
 from ..core.move import Move
-from ..core.game_rule import GameState
+from ..core.game_rule import GameRule
+from ..core.game_state import GameState
 from ..ai.strategies.strategies import AIStrategy
 from ..ai.strategies.radom import RandomStrategy
 

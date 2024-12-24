@@ -3,7 +3,7 @@
 from abc import ABC, abstractmethod
 from typing import Optional, List, Tuple
 from ...core.move import Move 
-from ...core.game_rule import GameState
+from ...core.game_state import GameState
 from ...core.pieces.piece import PieceColor
 
 class AIStrategy(ABC):
